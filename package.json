@@ -1,0 +1,23 @@
+{
+  "name": "hatchling-run",
+  "version": "0.1.0",
+  "description": "Browser survival game: Galapagos green sea turtle hatchlings racing to the sea (Level 1 - Bahia Las Bachas).",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "test": "vitest run",
+    "check": "astro check"
+  },
+  "dependencies": {
+    "astro": "7.3.8",
+    "phaser": "4.2.1"
+  },
+  "devDependencies": {
+    "@astrojs/check": "0.9.6",
+    "typescript": "5.9.3",
+    "vitest": "5.0.3"
+  }
+}

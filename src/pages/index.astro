@@ -1,0 +1,27 @@
+---
+import GameCanvas from "../components/GameCanvas.astro";
+---
+
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Hatchling Run — Galápagos</title>
+    <style is:global>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background-color: #0b1020;
+        color: #e8e2d0;
+        font-family: system-ui, sans-serif;
+        overflow: hidden;
+      }
+    </style>
+  </head>
+  <body>
+    <GameCanvas />
+  </body>
+</html>

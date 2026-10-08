@@ -1,0 +1,22 @@
+---
+/**
+ * Client-only island that mounts the Phaser game.
+ * Phaser never runs during SSR/build: the engine is loaded lazily
+ * inside a browser script, after the page reaches the client.
+ */
+---
+
+<div id="game-root"></div>
+
+<style>
+  #game-root {
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+  }
+</style>
+
+<script>
+  // Processed and bundled by Astro for the browser (no SSR execution).
+  import("../game/boot");
+</script>
