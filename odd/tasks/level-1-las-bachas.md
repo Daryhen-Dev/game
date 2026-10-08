@@ -35,7 +35,7 @@ population, too many starves the predators.
 
 ## Tasks
 
-- [ ] T1 Scaffold Astro + TS strict + Phaser island + Vitest; placeholder page boots canvas.
+- [x] T1 Scaffold Astro + TS strict + Phaser island + Vitest; placeholder page boots canvas.
 - [ ] T2 Simulation core (TDD): hatchling crawl, predator behaviors, capture, energy, ecosystem meter, win/lose evaluation.
 - [ ] T3 Phaser level scene: beach layout, procedural pixel sprites, sim ↔ render binding.
 - [ ] T4 Input: unified pointer/touch scare, energy HUD, responsive scaling.
@@ -50,8 +50,13 @@ population, too many starves the predators.
 
 ## Progress
 
-(none yet)
+- T1 — route: delegated (gentle-ai-worker; multi-file write trigger). Commit `a27fe59`.
+  Deviation: TypeScript 5.9.3 instead of 7.0.2 (@astrojs/check 0.9.6 peer `typescript ^5`).
+  TDD: RED (missing ./config import) → GREEN 2/2. Checks: vitest pass, build pass
+  (>500 kB Phaser chunk warning), astro check 0 errors. RDD assess: unavailable (root
+  commit, no base) → treated high → independent gentle-ai-verify: all 4 checks PASS.
+  Not verified: live browser runtime. Running lines: ~260 authored (lockfile excluded).
 
 ## Next step
 
-T1.
+T2.
