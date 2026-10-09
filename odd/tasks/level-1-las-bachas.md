@@ -41,6 +41,10 @@ population, too many starves the predators.
 - [ ] T4 Input: unified pointer/touch scare, energy HUD, responsive scaling.
 - [ ] T5 Menu, intro, results screens (win/lose by band, score).
 - [ ] T6 Free assets + audio integration with CREDITS.md.
+- [x] F1 Fix R3-001: frigatebird/heron scare test mutates a snapshot copy (no-op); drive real state.
+- [x] F2 Perf: LevelScene reads one hatchlings/predators snapshot per frame instead of repeated clones.
+- [x] F3 Telegraph shadow renders on the ground (below dynamic sprites, above props), tested depth constant.
+- [x] F4 Cover textures.ts: extract pure pixel → fill-op mapping and test it.
 
 ## Acceptance
 
@@ -74,20 +78,30 @@ population, too many starves the predators.
   gentle-ai-verify PASS, no blockers. Suggestions: defensive-copy getters read several times
   per frame (GC churn), telegraph shadow depth 999 overlays sprites, textures.ts untested.
   Not verified: live browser rendering.
+- F1–F4 — route: delegated (gentle-ai-worker). Commits `0561218` (F1), `2474e79` (F2+F3,
+  share LevelScene.ts), `3d2d281` (F4); ~166 lines. TDD: F1 RED (old premise → 'idle' ≠
+  'windup') → GREEN; F2 refactor-only (no DOM seam; suite/check/build); F3 RED → GREEN;
+  F4 RED (missing ./rasterize) → GREEN. Checks: 102/102 tests, check 0 errors, build pass;
+  balance.test.ts and sim production code unchanged. RDD: assess unavailable → high; native
+  START `consent-binding-expired`, `lineage_created: false` (3rd time) → independent
+  gentle-ai-verify PASS, no blockers. Suggestions: redundant `targetId` assertion
+  (simulation.test.ts:127); cancellation loop is corroborating, not conclusive.
 
 ## Delivery slices (stacked-to-main)
 
 - PR1: `a27fe59` (T1 scaffold)
 - PR2: `f23268a` (T2 simulation core)
 - PR3: `631bbd1` (T3 level scene)
+- Delivered: T1 pushed as main root `a27fe59`; PR #1 (T2) merged `c1df4f8`; PR #2 (T3) merged
+  `2985605` (merge commits to keep stacked hashes). Follow-ups on branch `fix/level-1-followups`.
 
 ## Follow-ups
 
-- Fix R3-001: force predator state through a test seam instead of mutating a snapshot copy.
-- Balance design: a perfect protector reaches 1.0; consider whether energy should be tighter
-  after playtesting T3/T4.
-- Perf: cache one snapshot per frame in LevelScene instead of repeated getter clones.
+- F1–F4 promoted to tasks (user request, 2026-10-09).
+- Balance design (pending playtest, not a code task yet): a perfect protector reaches 1.0;
+  consider tighter energy after T4 is playable.
+- R3-002..008 review suggestions: details not captured in the closure; not actionable.
 
 ## Next step
 
-T4.
+PR for `fix/level-1-followups`, then T4.
