@@ -38,7 +38,7 @@ population, too many starves the predators.
 - [x] T1 Scaffold Astro + TS strict + Phaser island + Vitest; placeholder page boots canvas.
 - [x] T2 Simulation core (TDD): hatchling crawl, predator behaviors, capture, energy, ecosystem meter, win/lose evaluation.
 - [x] T3 Phaser level scene: beach layout, procedural pixel sprites, sim ↔ render binding.
-- [ ] T4 Input: unified pointer/touch scare, energy HUD, responsive scaling.
+- [x] T4 Input: unified pointer/touch scare, energy HUD, responsive scaling.
 - [ ] T5 Menu, intro, results screens (win/lose by band, score).
 - [ ] T6 Free assets + audio integration with CREDITS.md.
 - [x] F1 Fix R3-001: frigatebird/heron scare test mutates a snapshot copy (no-op); drive real state.
@@ -86,14 +86,28 @@ population, too many starves the predators.
   START `consent-binding-expired`, `lineage_created: false` (3rd time) → independent
   gentle-ai-verify PASS, no blockers. Suggestions: redundant `targetId` assertion
   (simulation.test.ts:127); cancellation loop is corroborating, not conclusive.
+- T4 — route: delegated (gentle-ai-worker) + 2 inline parent edits (unused `hudBacking` field
+  hint; reverted `maximum-scale=1, user-scalable=no` viewport meta because it blocks
+  accessibility zoom — `touch-action: none` on the game root already blocks canvas gestures).
+  Commit `f96e283` (~428 lines). Pure `src/game/view/hud.ts` (energyBar, ecosystemMeter over
+  whole nest with collapse-certain / starve-certain / in-band-secured / open, scareFeedback,
+  statusLabel). TDD RED (missing ./hud) → GREEN 20/20. Checks: 122/122 tests, check 0/0/0,
+  build pass. RDD: assess unavailable → high → native review `review-c519f0f0256f6fe2`
+  (medium, reliability) approved and acknowledged (authority burned). Advisory: HUD-strip taps
+  still reach `sim.scare` (LevelScene.ts:84-86); inconsistent-counts status coverage
+  (hud.test.ts:101-104); no guard for `scareCost` 0 (hud.ts:25-26).
+  Not verified: live browser / touch device.
 
 ## Delivery slices (stacked-to-main)
 
 - PR1: `a27fe59` (T1 scaffold)
 - PR2: `f23268a` (T2 simulation core)
 - PR3: `631bbd1` (T3 level scene)
+- PR4 (#3): F1–F4 follow-ups, merged `9801574`
+- PR5: `f96e283` (T4 input + HUD), branch `feat/level-1-input-hud`
 - Delivered: T1 pushed as main root `a27fe59`; PR #1 (T2) merged `c1df4f8`; PR #2 (T3) merged
-  `2985605` (merge commits to keep stacked hashes). Follow-ups on branch `fix/level-1-followups`.
+  `2985605` (merge commits to keep stacked hashes). Follow-ups PR #3 merged `9801574`.
+- T4 on branch `feat/level-1-input-hud` (from `9801574`).
 
 ## Follow-ups
 
@@ -104,4 +118,4 @@ population, too many starves the predators.
 
 ## Next step
 
-PR for `fix/level-1-followups`, then T4.
+Playtest (`npm run dev`) to decide energy tuning; PR for `feat/level-1-input-hud`; then T5.

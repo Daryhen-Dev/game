@@ -13,6 +13,16 @@
     width: 100vw;
     height: 100vh;
     height: 100dvh;
+    box-sizing: border-box;
+    /* Fullscreen portrait game: kill browser touch gestures on the canvas. */
+    touch-action: none;
+    overscroll-behavior: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    /* Keep the play area clear of notches and home indicators. */
+    padding: env(safe-area-inset-top) env(safe-area-inset-right)
+      env(safe-area-inset-bottom) env(safe-area-inset-left);
   }
 </style>
 

@@ -5,8 +5,17 @@ import {
   createRng,
   type Hatchling,
   type Predator,
+  type ScareResult,
   type SimEvent,
 } from "../sim";
+import {
+  energyBar,
+  ecosystemMeter,
+  scareFeedback,
+  statusLabel,
+  type EcosystemMeter,
+  type EnergyBar,
+} from "../view/hud";
 import {
   GROUND_SHADOW_DEPTH,
   diveTelegraph,
@@ -38,8 +47,8 @@ const OUTCOME_TEXT: Record<NonNullable<Simulation["outcome"]>, string> = {
 
 /**
  * Level 1 "Bahía Las Bachas": night beach rendered from the deterministic
- * Simulation. Input (scaring), HUD and menus arrive in T4/T5; a debug count
- * line is shown top-left meanwhile.
+ * Simulation. Pointer/touch scares predators; the top HUD shows the energy
+ * bar and the live ecosystem meter. Menus/results screens arrive in T5.
  */
 export class LevelScene extends Phaser.Scene {
   private sim!: Simulation;
@@ -47,9 +56,12 @@ export class LevelScene extends Phaser.Scene {
   private readonly hatchlingSprites = new Map<number, Phaser.GameObjects.Image>();
   private readonly predatorSprites = new Map<string, Phaser.GameObjects.Image>();
   private readonly telegraphShadows = new Map<string, Phaser.GameObjects.Image>();
-  private countsText!: Phaser.GameObjects.Text;
   private moonGlint!: Phaser.GameObjects.Graphics;
   private outcomeShown = false;
+
+  // --- HUD objects (rebuilt once in create, redrawn per frame) ---
+  private hudBars!: Phaser.GameObjects.Graphics;
+  private hudStatusText!: Phaser.GameObjects.Text;
 
   constructor() {
     super("LevelScene");
@@ -66,11 +78,128 @@ export class LevelScene extends Phaser.Scene {
 
     this.drawBackground(seed);
     this.drawStaticProps();
+    this.buildHud();
 
-    this.countsText = this.add
-      .text(6, 4, "", { fontFamily: "monospace", fontSize: "10px", color: "#e8e6d8" })
+    // Unified mouse + touch input: worldX/worldY are correct under FIT scaling.
+    this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
+      this.handleScareInput(pointer);
+    });
+  }
+
+  private handleScareInput(pointer: Phaser.Input.Pointer): void {
+    if (this.sim.finished) return;
+    const result = this.sim.scare(pointer.worldX, pointer.worldY);
+    this.showScareFeedback(pointer.worldX, pointer.worldY, result);
+  }
+
+  /** Expanding ring + brief label at the tap point; tweens self-destroy. */
+  private showScareFeedback(x: number, y: number, result: ScareResult): void {
+    const feedback = scareFeedback(result);
+    const color =
+      feedback.kind === "hit" ? 0x8fd07a : feedback.kind === "miss" ? 0x9aa0a8 : 0xff6b5e;
+    const ring = this.add
+      .circle(x, y, LEVEL_1.energy.scareRadius)
+      .setStrokeStyle(2, color, 0.9)
+      .setDepth(1800);
+    this.tweens.add({
+      targets: ring,
+      scale: 1.15,
+      alpha: 0,
+      duration: 280,
+      ease: "Quad.easeOut",
+      onComplete: () => ring.destroy(),
+    });
+    // Keep the label below the HUD strip when tapping near the sea line.
+    const labelY = Math.max(y - LEVEL_1.energy.scareRadius - 6, 46);
+    const label = this.add
+      .text(x, labelY, feedback.label, {
+        fontFamily: "monospace",
+        fontSize: "10px",
+        color: "#e8e6d8",
+        stroke: "#0b1020",
+        strokeThickness: 2,
+      })
+      .setOrigin(0.5)
+      .setDepth(1800);
+    this.tweens.add({
+      targets: label,
+      y: "-=10",
+      alpha: 0,
+      delay: 180,
+      duration: 420,
+      ease: "Quad.easeOut",
+      onComplete: () => label.destroy(),
+    });
+  }
+
+  // --- HUD ---
+
+  /** Top strip (y 0..40 over the sea): energy bar left, ecosystem meter below. */
+  private buildHud(): void {
+    this.add
+      .rectangle(0, 0, LEVEL_1.world.width, 40, 0x0b1020, 0.55)
+      .setOrigin(0, 0)
       .setDepth(2000);
-    this.updateCounts();
+    this.hudBars = this.add.graphics().setDepth(2001);
+    this.add
+      .text(8, 3, "Energía", { fontFamily: "monospace", fontSize: "9px", color: "#e8e6d8" })
+      .setDepth(2002);
+    this.hudStatusText = this.add
+      .text(8, 29, "", { fontFamily: "monospace", fontSize: "9px", color: "#e8e6d8" })
+      .setDepth(2002);
+  }
+
+  /** Refresh the HUD once per frame from a single energy/counts read. */
+  private updateHud(): void {
+    const energy = this.sim.energy;
+    const counts = this.sim.counts;
+    const bar = energyBar(energy, LEVEL_1.energy);
+    const meter = ecosystemMeter(counts, LEVEL_1.hatchlings, LEVEL_1.healthyBand);
+    this.hudStatusText.setText(`${counts.safe}/${LEVEL_1.hatchlings} · ${statusLabel(meter.status)}`);
+    this.drawHudBars(bar, meter);
+  }
+
+  private drawHudBars(bar: EnergyBar, meter: EcosystemMeter): void {
+    const g = this.hudBars;
+    g.clear();
+
+    // Energy bar (left of the strip): amber when a scare is affordable.
+    const ex = 56;
+    const ew = 120;
+    const ey = 5;
+    const eh = 8;
+    g.fillStyle(0x222a3f, 1).fillRect(ex, ey, ew, eh);
+    g.fillStyle(bar.canScare ? 0xffd54a : 0x8a5a3f, 1).fillRect(ex, ey, ew * bar.fraction, eh);
+    g.lineStyle(1, 0xe8e6d8, 0.6).strokeRect(ex, ey, ew, eh);
+    // Segment ticks: one per affordable scare at the config cost.
+    const { max, scareCost } = LEVEL_1.energy;
+    g.lineStyle(1, 0x0b1020, 0.8);
+    for (let k = 1; k * scareCost < max; k++) {
+      const tickX = ex + (k * scareCost / max) * ew;
+      g.lineBetween(tickX, ey + 1, tickX, ey + eh - 1);
+    }
+
+    // Ecosystem stacked bar over the whole nest: safe | caught | pending.
+    const mx = 8;
+    const mw = LEVEL_1.world.width - 16;
+    const my = 19;
+    const mh = 8;
+    let cursor = mx;
+    const paint = (fraction: number, color: number): void => {
+      const w = mw * fraction;
+      g.fillStyle(color, 1).fillRect(cursor, my, w, mh);
+      cursor += w;
+    };
+    paint(meter.safe, 0x3fae9c); // sea-blue/green: safe hatchlings
+    paint(meter.caught, 0x8a2f2f); // dark red: caught
+    paint(meter.pending, 0xb7a479); // sand grey: crawling + unspawned
+    g.lineStyle(1, 0xe8e6d8, 0.6).strokeRect(mx, my, mw, mh);
+
+    // Healthy-band markers (50% / 70%), tall enough to read against the bar.
+    g.lineStyle(1, 0xf2ead0, 0.9);
+    for (const bandX of [mx + meter.bandMin * mw, mx + meter.bandMax * mw]) {
+      g.lineBetween(bandX, my - 3, bandX, my + mh + 3);
+    }
   }
 
   update(_time: number, delta: number): void {
@@ -89,7 +218,7 @@ export class LevelScene extends Phaser.Scene {
     const predatorById = new Map(predators.map((p) => [p.id, p] as const));
     this.handleEvents(this.sim.drainEvents(), hatchlingById, predatorById);
     this.syncSprites(this.time.now / 1000, hatchlings, predators);
-    this.updateCounts();
+    this.updateHud();
     // Subtle moonlight shimmer on the water.
     this.moonGlint.setAlpha(0.55 + 0.3 * Math.sin(this.time.now / 500));
   }
@@ -299,11 +428,6 @@ export class LevelScene extends Phaser.Scene {
   }
 
   // --- HUD ---
-
-  private updateCounts(): void {
-    const c = this.sim.counts;
-    this.countsText.setText(`Seguras ${c.safe} · Atrapadas ${c.caught} · Restan ${c.crawling}`);
-  }
 
   private showOutcome(event: Extract<SimEvent, { type: "level-ended" }>): void {
     if (this.outcomeShown) return;
