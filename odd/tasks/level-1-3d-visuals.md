@@ -43,7 +43,7 @@ does not read as sea.
 - [x] V1 Three.js foundation: deps, pure world mapping + picking (TDD), renderer/camera/
       lights, sim loop, HTML HUD overlay + tap-to-scare via ground raycast, placeholder
       shapes per entity, `?seed=` and `?t=` debug params for screenshots.
-- [ ] V2 Environment: ocean shader (waves, shoreline foam, moon reflection), sand terrain
+- [x] V2 Environment: ocean shader (waves, shoreline foam, moon reflection), sand terrain
       (dunes, ripples), sky with moon + stars, lava rocks, mangroves, nest mound, burrows, fog.
 - [ ] V3 Creatures: low-poly hatchling (shell + scutes, flippers anim), ghost crab (eye
       stalks, claws, leg anim), frigatebird (angled wings, red gular pouch, flap/dive),
@@ -69,6 +69,27 @@ does not read as sea.
   only a dark sliver at the left edge; (b) ecosystem meter overflows the right edge of the
   HUD; (c) bottom ~25% of the screen is empty sand behind the nest (camera framing).
 
+- (Session resumed after interruption; V2 worker output was uncommitted and intact.)
+- V2 — route: delegated (gentle-ai-worker, 2 rounds) + 1 inline parent fix. Commit `1882edd`
+  (~1883 lines). First build rendered a blank page: `mergeGeometries` mixed indexed
+  CylinderGeometry with non-indexed IcosahedronGeometry → null → `morphAttributes` crash.
+  Parent fix: `withColor` converts parts to non-indexed; worker then made merge failures
+  throw a labeled error. Round 2 fixed sand colour (lights were ~2.5x too dim under the
+  physical 1/π BRDF), wavy swash edge + bright foam, small smooth nest mound, non-black
+  props/placeholders, CSS vignette. Camera rig rewritten as an analytic 3-target solver
+  (nest −0.75, sea line 0.35, horizon 0.85 NDC). New pure env helpers with TDD: waves, foam,
+  dunes (exactly 0 inside the playfield), stars. Checks: 183/183 tests, check 0/0/0, build pass.
+  Screenshot finding: headless Chrome lays out at 500 px and crops to 390, which faked the
+  HUD overflow; screenshots now need `&w=390` (new `?w=`/`?h=` debug viewport pin).
+  Final frame (`?seed=7&t=12&w=390`): sea with moon, glitter path and foam; pale sand; HUD
+  fits; no console errors.
+  RDD: native review `review-258a59dcceb0e2d0` (medium, reliability) created, but the reviewer
+  timed out twice (reasoning-only stream guard, no answer) → review unavailable for this
+  candidate, lineage left in `reviewing` → independent gentle-ai-verify: PASS, no blockers.
+  WARNINGS for later: GLSL mirror constants drift slightly from TS (`shaderChunks.ts:32,71`);
+  horizon test does not pin `HORIZON_NDC_Y`; `mergeGeometries([])` unguarded for crab-less
+  levels; unbagged base rock geometries; per-frame `simToWorld` allocations (pre-existing).
+
 ## Next step
 
-V2 (includes V1 defects a–c).
+User visual feedback on the V2 frame, then V3 (creature models replace placeholders).
