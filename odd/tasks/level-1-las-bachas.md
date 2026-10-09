@@ -37,7 +37,7 @@ population, too many starves the predators.
 
 - [x] T1 Scaffold Astro + TS strict + Phaser island + Vitest; placeholder page boots canvas.
 - [x] T2 Simulation core (TDD): hatchling crawl, predator behaviors, capture, energy, ecosystem meter, win/lose evaluation.
-- [ ] T3 Phaser level scene: beach layout, procedural pixel sprites, sim ↔ render binding.
+- [x] T3 Phaser level scene: beach layout, procedural pixel sprites, sim ↔ render binding.
 - [ ] T4 Input: unified pointer/touch scare, energy HUD, responsive scaling.
 - [ ] T5 Menu, intro, results screens (win/lose by band, score).
 - [ ] T6 Free assets + audio integration with CREDITS.md.
@@ -64,18 +64,30 @@ population, too many starves the predators.
   Advisory follow-ups (non-blocking): R3-001 WARNING simulation.test.ts:82-86 mutates a
   defensive snapshot copy, so the "windup" forcing is a no-op (test passes because perched
   birds are scareable); R3-002..008 suggestions.
+- (Session resumed after unexpected PC shutdown; git/fsck clean, 66/66 tests reconfirmed.)
+- T3 — route: delegated (gentle-ai-worker). Commit `631bbd1` (~1100 lines incl. tests).
+  New Phaser-free view layer `src/game/view/` (pixelArt, presentation) with strict TDD
+  (RED unresolved imports → GREEN 29/29); LevelScene with fixed-step accumulator; BootScene
+  removed. Checks: 95/95 tests, check 0 errors, build pass. RDD: assess unavailable → high;
+  native START returned `consent-binding-expired` twice with `lineage_created: false` →
+  native review unavailable for this candidate → risk-gated path: independent
+  gentle-ai-verify PASS, no blockers. Suggestions: defensive-copy getters read several times
+  per frame (GC churn), telegraph shadow depth 999 overlays sprites, textures.ts untested.
+  Not verified: live browser rendering.
 
 ## Delivery slices (stacked-to-main)
 
 - PR1: `a27fe59` (T1 scaffold)
 - PR2: `f23268a` (T2 simulation core)
+- PR3: `631bbd1` (T3 level scene)
 
 ## Follow-ups
 
 - Fix R3-001: force predator state through a test seam instead of mutating a snapshot copy.
 - Balance design: a perfect protector reaches 1.0; consider whether energy should be tighter
   after playtesting T3/T4.
+- Perf: cache one snapshot per frame in LevelScene instead of repeated getter clones.
 
 ## Next step
 
-T3.
+T4.
