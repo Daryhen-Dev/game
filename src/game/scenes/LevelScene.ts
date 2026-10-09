@@ -8,7 +8,7 @@ import {
   type SimEvent,
 } from "../sim";
 import {
-  FRIGATEBIRD_DEPTH,
+  GROUND_SHADOW_DEPTH,
   diveTelegraph,
   hatchlingVisual,
   predatorVisual,
@@ -81,8 +81,14 @@ export class LevelScene extends Phaser.Scene {
         this.accumulator -= FIXED_STEP_SEC;
       }
     }
-    this.handleEvents(this.sim.drainEvents());
-    this.syncSprites(this.time.now / 1000);
+    // One snapshot per frame: the getters clone defensively, so take each
+    // exactly once and build id maps for event lookups.
+    const hatchlings = this.sim.hatchlings;
+    const predators = this.sim.predators;
+    const hatchlingById = new Map(hatchlings.map((h) => [h.id, h] as const));
+    const predatorById = new Map(predators.map((p) => [p.id, p] as const));
+    this.handleEvents(this.sim.drainEvents(), hatchlingById, predatorById);
+    this.syncSprites(this.time.now / 1000, hatchlings, predators);
     this.updateCounts();
     // Subtle moonlight shimmer on the water.
     this.moonGlint.setAlpha(0.55 + 0.3 * Math.sin(this.time.now / 500));
@@ -172,8 +178,12 @@ export class LevelScene extends Phaser.Scene {
 
   // --- simulation sync ---
 
-  private syncSprites(timeSec: number): void {
-    for (const h of this.sim.hatchlings) {
+  private syncSprites(
+    timeSec: number,
+    hatchlings: Hatchling[],
+    predators: Predator[],
+  ): void {
+    for (const h of hatchlings) {
       const v = hatchlingVisual(h, timeSec);
       let img = this.hatchlingSprites.get(h.id);
       if (!img) {
@@ -188,7 +198,7 @@ export class LevelScene extends Phaser.Scene {
       img.setDepth(v.depth);
     }
 
-    for (const p of this.sim.predators) {
+    for (const p of predators) {
       const v = predatorVisual(p, timeSec);
       let img = this.predatorSprites.get(p.id);
       if (!img) {
@@ -220,24 +230,28 @@ export class LevelScene extends Phaser.Scene {
     shadow.setPosition(tele.x, tele.y);
     shadow.setAlpha(tele.alpha);
     shadow.setScale(telegraphScale(tele.radius));
-    shadow.setDepth(FRIGATEBIRD_DEPTH - 1);
+    shadow.setDepth(GROUND_SHADOW_DEPTH);
   }
 
-  private handleEvents(events: SimEvent[]): void {
+  private handleEvents(
+    events: SimEvent[],
+    hatchlingById: Map<number, Hatchling>,
+    predatorById: Map<string, Predator>,
+  ): void {
     for (const event of events) {
       switch (event.type) {
         case "hatchling-safe": {
-          const h = this.findHatchling(event.id);
+          const h = hatchlingById.get(event.id);
           if (h) this.spawnPuff(h.x, LEVEL_1.world.seaLineY, 0xd8e6f2);
           break;
         }
         case "hatchling-caught": {
-          const h = this.findHatchling(event.id);
+          const h = hatchlingById.get(event.id);
           if (h) this.spawnPuff(h.x, h.y, 0x20293f);
           break;
         }
         case "predator-scared": {
-          const p = this.sim.predators.find((pred) => pred.id === event.predatorId);
+          const p = predatorById.get(event.predatorId);
           if (p) this.spawnAlert(p.x, p.y);
           break;
         }
@@ -253,10 +267,6 @@ export class LevelScene extends Phaser.Scene {
           break;
       }
     }
-  }
-
-  private findHatchling(id: number): Hatchling | undefined {
-    return this.sim.hatchlings.find((h) => h.id === id);
   }
 
   // --- small effects ---

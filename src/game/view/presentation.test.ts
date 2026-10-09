@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
+import { LEVEL_1 } from "../sim";
 import type { FrigatebirdDef, GhostCrabDef, LavaHeronDef } from "../sim";
 import type { Hatchling, Predator } from "../sim";
-import { FRIGATEBIRD_DEPTH, diveTelegraph, hatchlingVisual, predatorVisual } from "./presentation";
+import {
+  FRIGATEBIRD_DEPTH,
+  GROUND_SHADOW_DEPTH,
+  diveTelegraph,
+  hatchlingVisual,
+  predatorVisual,
+} from "./presentation";
 
 const CRAB_DEF: GhostCrabDef = {
   kind: "ghostCrab",
@@ -140,6 +147,16 @@ describe("predatorVisual", () => {
     const lunge = predatorVisual(makePredator("lavaHeron", { state: "windup" }), 0);
     expect(idle).toMatchObject({ textureKey: "lavaHeron", frame: 0 });
     expect(lunge.frame).toBe(1);
+  });
+});
+
+describe("GROUND_SHADOW_DEPTH", () => {
+  it("renders telegraph shadows on the ground: above props, below dynamic sprites", () => {
+    // LevelScene draws static props at depth 10 and the waterline foam at 12;
+    // dynamic sprites (hatchlings, crabs, herons) order by depth = y, and no
+    // dynamic object sits above the sea line (y = seaLineY on LEVEL_1).
+    expect(GROUND_SHADOW_DEPTH).toBeGreaterThan(12);
+    expect(GROUND_SHADOW_DEPTH).toBeLessThan(LEVEL_1.world.seaLineY);
   });
 });
 

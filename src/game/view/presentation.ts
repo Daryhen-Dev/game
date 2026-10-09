@@ -33,6 +33,14 @@ export interface DiveTelegraph {
 /** Frigatebirds fly above everything else in the world (world height is 640). */
 export const FRIGATEBIRD_DEPTH = 1000;
 
+/**
+ * Ground-level depth for telegraph shadows (dive/lunge): a shadow belongs on
+ * the sand, so it renders above static props (depths 10-12 in LevelScene) and
+ * the sand (-6), but below every dynamic sprite, which orders by y starting
+ * at the sea line (LEVEL_1 seaLineY = 96).
+ */
+export const GROUND_SHADOW_DEPTH = 50;
+
 /** Depth floor for dynamic world objects (sea starts at y = 96). */
 const DYNAMIC_DEPTH_OFFSET = 0;
 
