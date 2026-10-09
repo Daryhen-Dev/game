@@ -40,7 +40,7 @@ does not read as sea.
 
 ## Tasks
 
-- [ ] V1 Three.js foundation: deps, pure world mapping + picking (TDD), renderer/camera/
+- [x] V1 Three.js foundation: deps, pure world mapping + picking (TDD), renderer/camera/
       lights, sim loop, HTML HUD overlay + tap-to-scare via ground raycast, placeholder
       shapes per entity, `?seed=` and `?t=` debug params for screenshots.
 - [ ] V2 Environment: ocean shader (waves, shoreline foam, moon reflection), sand terrain
@@ -58,8 +58,17 @@ does not read as sea.
 
 ## Progress
 
-(none yet)
+- V1 — route: delegated (gentle-ai-worker). Commit `b68334a` (+ doc `cc3eddb`; ~1404 lines incl.
+  lockfile). Pure `worldMap` (0.05 m/px, nest +12 m, sea line −11.2 m), `picking`, `camera`
+  (pitch 55°, fov 35–68°). TDD RED (3 missing modules) → GREEN 147/147. check 0/0/0, build pass.
+  RDD: assess failed (untracked doc) → high → native review `review-5e01a30af59b1a99` (medium,
+  reliability) approved + acknowledged. Advisories: ground geometry dispose, outcome title
+  fallback, scare input chain untested, empty `?seed=`.
+  Visual check (headless Chrome 390x844, `?seed=7&t=12`): renders; hatchlings green, crabs
+  grey, bird dark wedges. DEFECTS for V2: (a) sea is not visible — sand reaches the horizon,
+  only a dark sliver at the left edge; (b) ecosystem meter overflows the right edge of the
+  HUD; (c) bottom ~25% of the screen is empty sand behind the nest (camera framing).
 
 ## Next step
 
-V1.
+V2 (includes V1 defects a–c).
