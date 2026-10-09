@@ -16,6 +16,8 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 import { type EnvLayer, DisposableBag } from "./env";
 import { type DuneConfig, duneHeight } from "./dunes";
 import { SCALE_M_PER_PX, seaLineZ, simToWorld } from "../worldMap";
+import { type ToonMaterialFactory } from "../toon/toonMaterials";
+import { addOutline } from "../toon/outline";
 import type { PredatorDef, WorldConfig } from "../../sim";
 
 export interface PropsOptions {
@@ -23,6 +25,10 @@ export interface PropsOptions {
   predators: PredatorDef[];
   /** Seed for deterministic prop placement (independent from the sim seed). */
   seed: number;
+  /** Cartoon toon-material factory (V3 restyle). */
+  toon: ToonMaterialFactory;
+  /** Shared inverted-hull outline material. */
+  outlineMaterial: THREE.MeshBasicMaterial;
 }
 
 const DUNE_CFG = (world: WorldConfig): DuneConfig => ({
@@ -101,9 +107,7 @@ export function createProps(options: PropsOptions): EnvLayer {
   };
 
   // --- lava rocks -----------------------------------------------------------
-  const rockMaterial = bag.add(
-    new THREE.MeshStandardMaterial({ color: 0x262a30, roughness: 0.95 }),
-  );
+  const rockMaterial = options.toon.get({ color: 0x2c3340, emissive: 0x0c1018 });
   const rockGeometries = [
     jitterRockGeometry(new THREE.DodecahedronGeometry(1, 0), rng, 0.35),
     jitterRockGeometry(new THREE.DodecahedronGeometry(1, 0), rng, 0.35),
@@ -113,6 +117,7 @@ export function createProps(options: PropsOptions): EnvLayer {
   // Three instanced variants scattered along both dune sides + the shoreline.
   const ROCKS_PER_VARIANT = 12;
   const matrix = new THREE.Matrix4();
+  const scaleMatrixScratch = new THREE.Matrix4();
   const quaternion = new THREE.Quaternion();
   const euler = new THREE.Euler();
   const scaleVec = new THREE.Vector3();
@@ -122,6 +127,9 @@ export function createProps(options: PropsOptions): EnvLayer {
       new THREE.InstancedMesh(geometry, rockMaterial, ROCKS_PER_VARIANT),
     );
     instanced.castShadow = true;
+    const outline = bag.add(
+      new THREE.InstancedMesh(geometry, options.outlineMaterial, ROCKS_PER_VARIANT),
+    );
     for (let i = 0; i < ROCKS_PER_VARIANT; i++) {
       // Half along the dune sides, half near the waterline edges.
       const nearShore = i % 2 === 0;
@@ -135,9 +143,14 @@ export function createProps(options: PropsOptions): EnvLayer {
       positionVec.set(x, groundY(x, z, cfg) + scale * 0.3, z);
       matrix.compose(positionVec, quaternion, scaleVec);
       instanced.setMatrixAt(i, matrix);
+      // Inverted-hull outline: same instance grown ~5% around its origin.
+      matrix.multiply(scaleMatrixScratch.makeScale(1.05, 1.05, 1.05));
+      outline.setMatrixAt(i, matrix);
     }
     instanced.instanceMatrix.needsUpdate = true;
+    outline.instanceMatrix.needsUpdate = true;
     group.add(instanced);
+    group.add(outline);
   }
 
   // Heron rock at the sim rock position (flat-topped perch).
@@ -154,6 +167,7 @@ export function createProps(options: PropsOptions): EnvLayer {
   heronRock.scale.set(0.95, 0.5, 0.8);
   heronRock.rotation.y = rng() * Math.PI * 2;
   heronRock.castShadow = true;
+  addOutline(heronRock, options.outlineMaterial, 1.06);
   group.add(heronRock);
 
   // --- mangroves (merged, vertex-colored) ------------------------------------
@@ -190,48 +204,55 @@ export function createProps(options: PropsOptions): EnvLayer {
   }
   const mangroveGeometry = bag.add(mergeParts(mangroveParts, "mangrove"));
   for (const part of mangroveParts) part.dispose();
-  const mangroveMaterial = bag.add(
-    new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 }),
-  );
+  const mangroveMaterial = options.toon.get({ vertexColors: true, emissive: 0x0a140c });
   const mangroves = new THREE.Mesh(mangroveGeometry, mangroveMaterial);
   mangroves.castShadow = true;
+  addOutline(mangroves, options.outlineMaterial, 1.04);
   group.add(mangroves);
 
   // --- nest mound + eggshell fragments ---------------------------------------
+  // Dug-sand nest: a low lathe ring, scooped in the middle, clearly darker
+  // and warmer than the beach (no emissive, no white ball).
   const nestPos = simToWorld(options.world.nest.x, options.world.nest.y, options.world);
-  const moundGeometry = bag.add(new THREE.SphereGeometry(0.5, 28, 18));
-  const moundMaterial = bag.add(
-    new THREE.MeshStandardMaterial({ color: 0xcabd9c, roughness: 1 }),
-  );
+  const moundProfile: THREE.Vector2[] = [
+    // Outer -> inner so LatheGeometry winds the faces outward (the reverse
+    // order inverts the normals and the front faces get culled).
+    new THREE.Vector2(0.75, 0.0),
+    new THREE.Vector2(0.68, 0.04),
+    new THREE.Vector2(0.5, 0.1),
+    new THREE.Vector2(0.34, 0.15),
+    new THREE.Vector2(0.18, 0.13),
+    new THREE.Vector2(0.0, 0.1),
+  ];
+  const moundGeometry = bag.add(new THREE.LatheGeometry(moundProfile, 24));
+  const moundMaterial = options.toon.get({ color: 0x8a744e });
   const mound = new THREE.Mesh(moundGeometry, moundMaterial);
-  mound.scale.set(1, 0.3, 1);
   mound.position.set(nestPos.x, 0.005, nestPos.z + 0.1);
   mound.receiveShadow = true;
+  mound.castShadow = true;
+  addOutline(mound, options.outlineMaterial, 1.05);
   group.add(mound);
 
-  // Eggshell fragments: small curved shells (partial spheres), off-white.
+  // Eggshell halves scattered around the dug nest.
   const fragmentGeometry = bag.add(
-    new THREE.SphereGeometry(0.055, 8, 6, 0, Math.PI * 1.5, 0, Math.PI * 0.55),
+    new THREE.SphereGeometry(0.07, 8, 6, 0, Math.PI * 1.5, 0, Math.PI * 0.55),
   );
-  const fragmentMaterial = bag.add(
-    new THREE.MeshStandardMaterial({
-      color: 0xf0ead9,
-      roughness: 0.7,
-      emissive: 0x2a2620, // keep them readable at night
-    }),
-  );
+  const fragmentMaterial = options.toon.get({
+    color: 0xf0ead9,
+    emissive: 0x2a2620, // keep them readable at night
+  });
   const fragments = bag.add(new THREE.InstancedMesh(fragmentGeometry, fragmentMaterial, 6));
   const fragmentMatrix = new THREE.Matrix4();
   for (let i = 0; i < 6; i++) {
     const angle = rng() * Math.PI * 2;
-    const radius = 0.22 + rng() * 0.4;
+    const radius = 0.5 + rng() * 0.45;
     const x = nestPos.x + Math.cos(angle) * radius;
     const z = nestPos.z + 0.1 + Math.sin(angle) * radius * 0.7;
     fragmentMatrix.identity();
     fragmentMatrix.makeRotationFromEuler(
       new THREE.Euler(rng() * Math.PI, rng() * Math.PI * 2, rng() * Math.PI),
     );
-    fragmentMatrix.setPosition(x, 0.19, z);
+    fragmentMatrix.setPosition(x, 0.05, z);
     fragments.setMatrixAt(i, fragmentMatrix);
   }
   fragments.instanceMatrix.needsUpdate = true;
@@ -255,20 +276,15 @@ export function createProps(options: PropsOptions): EnvLayer {
   }
   const burrowGeometry = bag.add(mergeParts(burrowParts, "burrow"));
   for (const part of burrowParts) part.dispose();
-  const burrowMaterial = bag.add(
-    new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 }),
-  );
+  const burrowMaterial = options.toon.get({ vertexColors: true });
   group.add(new THREE.Mesh(burrowGeometry, burrowMaterial));
 
   // --- shells + driftwood ------------------------------------------------------
   const shellGeometry = bag.add(new THREE.ConeGeometry(0.09, 0.14, 5));
-  const shellMaterial = bag.add(
-    new THREE.MeshStandardMaterial({
-      color: 0xe8e0d0,
-      roughness: 0.8,
-      emissive: 0x302c22, // off-white shells stay readable at night
-    }),
-  );
+  const shellMaterial = options.toon.get({
+    color: 0xe8e0d0,
+    emissive: 0x302c22, // off-white shells stay readable at night
+  });
   const shells = bag.add(new THREE.InstancedMesh(shellGeometry, shellMaterial, 14));
   for (let i = 0; i < 14; i++) {
     const x = (rng() - 0.5) * 16;
@@ -280,24 +296,43 @@ export function createProps(options: PropsOptions): EnvLayer {
   shells.instanceMatrix.needsUpdate = true;
   group.add(shells);
 
-  const woodGeometry = bag.add(new THREE.CylinderGeometry(0.13, 0.18, 1.6, 6));
-  const woodMaterial = bag.add(
-    new THREE.MeshStandardMaterial({ color: 0x8a7458, roughness: 1, emissive: 0x1a1610 }),
-  );
-  const driftwood = bag.add(new THREE.InstancedMesh(woodGeometry, woodMaterial, 3));
-  for (let i = 0; i < 3; i++) {
-    const x = (rng() - 0.5) * 12;
-    const z = seaZ + 9 + rng() * 6;
-    // Lying flat on the sand: axis along the ground, random yaw.
-    fragmentMatrix.identity();
-    fragmentMatrix.makeRotationFromEuler(
-      new THREE.Euler(Math.PI / 2, 0, rng() * Math.PI),
+  // --- driftwood: single curved two-tone logs ---------------------------------
+  // One bent log geometry from alternating light/dark segments (two-tone
+  // toon brown); two separate logs instead of crossed sticks.
+  const logParts: THREE.BufferGeometry[] = [];
+  const logLight = new THREE.Color(0x9a8262);
+  const logDark = new THREE.Color(0x6e5a44);
+  for (let i = 0; i < 5; i++) {
+    const radius = 0.15 - i * 0.01;
+    const seg = withColor(
+      new THREE.CylinderGeometry(radius - 0.01, radius, 0.36, 7),
+      i % 2 === 0 ? logLight : logDark,
     );
+    seg.rotateZ(Math.PI / 2); // axis along +X
+    seg.rotateZ(i * 0.09); // slight bend
+    seg.translate(-0.68 + i * 0.345, Math.sin(i * 0.4) * 0.05, 0);
+    logParts.push(seg);
+  }
+  const logGeometry = bag.add(mergeParts(logParts, "driftwood log"));
+  const logMaterial = options.toon.get({ vertexColors: true, emissive: 0x18130e });
+  const driftwood = bag.add(new THREE.InstancedMesh(logGeometry, logMaterial, 2));
+  const driftwoodOutline = bag.add(
+    new THREE.InstancedMesh(logGeometry, options.outlineMaterial, 2),
+  );
+  for (let i = 0; i < 2; i++) {
+    const x = (rng() - 0.5) * 10;
+    const z = seaZ + 10 + rng() * 5;
+    fragmentMatrix.identity();
+    fragmentMatrix.makeRotationY(rng() * Math.PI);
     fragmentMatrix.setPosition(x, groundY(x, z, cfg) + 0.16, z);
     driftwood.setMatrixAt(i, fragmentMatrix);
+    fragmentMatrix.multiply(scaleMatrixScratch.makeScale(1.06, 1.06, 1.06));
+    driftwoodOutline.setMatrixAt(i, fragmentMatrix);
   }
   driftwood.instanceMatrix.needsUpdate = true;
+  driftwoodOutline.instanceMatrix.needsUpdate = true;
   group.add(driftwood);
+  group.add(driftwoodOutline);
 
   return {
     group,

@@ -30,8 +30,8 @@ export function createOcean(options: OceanOptions): EnvLayer {
   const uniforms = {
     uTime: { value: 0 },
     uSeaLineZ: { value: options.seaLineZ },
-    uColorDeep: { value: new THREE.Color(0x0a1c33) }, // deep navy offshore
-    uColorShallow: { value: new THREE.Color(0x1c5a60) }, // turquoise near the shore
+    uColorDeep: { value: new THREE.Color(0x0e3148) }, // deep teal-blue offshore
+    uColorShallow: { value: new THREE.Color(0x146068) }, // teal near the shore
     uColorFoam: { value: new THREE.Color(0xdfe8ee) },
     uMoonDirW: { value: options.moonDir.clone().normalize() },
   };
@@ -141,8 +141,8 @@ export function createOcean(options: OceanOptions): EnvLayer {
             float oceanStreak = exp(-pow(vWorldPos.x / 4.0, 2.0));
             float oceanSparkle = 0.45 + 1.7 * pow(vnoise(vWorldPos.xz * 2.6 + vec2(0.0, uTime * 1.7)), 2.0);
             float oceanGlint =
-              pow(oceanAlign, 60.0) * (0.25 + 1.8 * oceanStreak) * oceanSparkle +
-              pow(oceanAlign, 18.0) * 0.15 * oceanStreak;
+              pow(oceanAlign, 90.0) * (0.18 + 1.15 * oceanStreak) * oceanSparkle +
+              pow(oceanAlign, 26.0) * 0.06 * oceanStreak;
             totalEmissiveRadiance += vec3(0.85, 0.9, 1.0) * oceanGlint;
             // Foam reads bright at night (moonlit sea froth glows faintly).
             totalEmissiveRadiance += vec3(0.55, 0.6, 0.62) * oceanFoam * 0.45;

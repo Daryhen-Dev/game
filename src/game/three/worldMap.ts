@@ -41,6 +41,16 @@ export function worldToSim(x: number, z: number, cfg: WorldMapConfig): { x: numb
   };
 }
 
+/**
+ * Allocation-free variant of `simToWorld` for per-frame loops: writes the
+ * result into `out` and returns it (same reference).
+ */
+export function simToWorldInto(x: number, y: number, cfg: WorldMapConfig, out: GroundPoint): GroundPoint {
+  out.x = (x - cfg.width / 2) * SCALE_M_PER_PX;
+  out.z = (y - cfg.height / 2) * SCALE_M_PER_PX;
+  return out;
+}
+
 /** Ground Z of the sea line: everything with a smaller Z is sea. */
 export function seaLineZ(cfg: WorldMapConfig): number {
   return simToWorld(0, cfg.seaLineY, cfg).z;
