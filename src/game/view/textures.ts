@@ -6,10 +6,7 @@
  */
 import type Phaser from "phaser";
 import { SPRITES, parsePixelArt } from "./pixelArt";
-
-function hexToCss(color: number): string {
-  return `#${color.toString(16).padStart(6, "0")}`;
-}
+import { toFillOps } from "./rasterize";
 
 /** Register every sprite in SPRITES as a canvas texture on the scene. */
 export function buildTextures(scene: Phaser.Scene): void {
@@ -21,11 +18,10 @@ export function buildTextures(scene: Phaser.Scene): void {
     canvas.height = parsed.height;
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("buildTextures: 2D canvas context unavailable");
-    parsed.pixels.forEach((color, i) => {
-      if (color === null) return;
-      ctx.fillStyle = hexToCss(color);
-      ctx.fillRect(i % parsed.width, Math.floor(i / parsed.width), 1, 1);
-    });
+    for (const op of toFillOps(parsed)) {
+      ctx.fillStyle = op.css;
+      ctx.fillRect(op.x, op.y, 1, 1);
+    }
     scene.textures.addCanvas(key, canvas);
   }
 }
