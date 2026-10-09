@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { LEVEL_1 } from "./config";
+import { LEVEL_1, type FrigatebirdDef } from "./config";
 import { createRng } from "./rng";
 import { Simulation } from "./simulation";
+import type { Predator } from "./types";
 
 function runToCompletion(sim: Simulation, dt = 1 / 60, onStep?: (sim: Simulation) => void) {
   let guard = 0;
@@ -76,25 +77,73 @@ describe("Simulation scare and energy", () => {
     expect(sim.energy).toBe(LEVEL_1.energy.max);
   });
 
-  it("scares every scareable predator in radius, deducts cost, emits events", () => {
+  it("drives the sim until a frigatebird genuinely winds up, then scares it mid-windup", () => {
+    const sim = new Simulation(LEVEL_1, createRng(7));
+    // Drive with fixed small steps and read fresh snapshots until the
+    // frigatebird is really in "windup" (it winds up once a hatchling has
+    // spawned and it is not on cooldown). Bounded loop guards a broken sim.
+    let bird: Predator | undefined;
+    for (let step = 0; step < 60 * 30; step++) {
+      sim.update(1 / 60);
+      const snap = sim.predators.find((p) => p.kind === "frigatebird");
+      if (snap?.state === "windup") {
+        bird = snap;
+        break;
+      }
+    }
+    expect(bird, "frigatebird never reached windup within 30 simulated seconds").toBeDefined();
+    expect(bird!.state).toBe("windup");
+    const targetId = bird!.targetId;
+    expect(targetId).not.toBeNull();
+
+    // Isolate the scare from the dive-warning emitted at windup start.
+    sim.drainEvents();
+    const energyBefore = sim.energy;
+    const result = sim.scare(bird!.x, bird!.y);
+    expect(result.ok).toBe(true);
+    expect(result.scared).toEqual([bird!.id]);
+    expect(sim.energy).toBe(energyBefore - LEVEL_1.energy.scareCost);
+
+    // Fresh snapshot: the bird is scared and the windup is cancelled.
+    expect(sim.predators.find((p) => p.id === bird!.id)!.state).toBe("scared");
+    expect(
+      sim.drainEvents().some((e) => e.type === "predator-scared" && e.predatorId === bird!.id),
+    ).toBe(true);
+
+    // The cancelled dive never lands: stepping through the would-be windup
+    // window, the bird catches nothing and records no catches (its windup
+    // branch never runs from the scared state).
+    const windupSec = (bird!.tunables as FrigatebirdDef).windupSec;
+    let caughtByBird = 0;
+    for (let elapsed = 0; elapsed < windupSec; ) {
+      sim.update(1 / 60);
+      elapsed += 1 / 60;
+      caughtByBird += sim
+        .drainEvents()
+        .filter((e) => e.type === "hatchling-caught" && e.predatorId === bird!.id).length;
+    }
+    expect(caughtByBird).toBe(0);
+    expect(sim.predators.find((p) => p.id === bird!.id)!.catches).toBe(0);
+    expect(targetId).not.toBeNull();
+  });
+
+  it("scares perched (idle) bird and heron — perched predators are scareable by design", () => {
     const sim = new Simulation(LEVEL_1, createRng(1));
-    sim.update(0);
-    // Force a predator into a scareable state next to a known point.
+    sim.update(0); // no time passes: bird and heron are still perched
+    // Documented intent of isScareable(): frigatebirds and lava herons are
+    // scareable while perched (idle) or winding up; crabs only on the sand
+    // (hunting/digesting); scared predators are immune.
     const bird = sim.predators.find((p) => p.kind === "frigatebird")!;
-    bird.state = "windup";
     const heron = sim.predators.find((p) => p.kind === "lavaHeron")!;
-    heron.state = "windup";
+    expect(bird.state).toBe("idle");
+    expect(heron.state).toBe("idle");
     const result = sim.scare(bird.x, bird.y);
     expect(result.ok).toBe(true);
     expect(result.scared).toEqual([bird.id]);
-    expect(sim.energy).toBe(LEVEL_1.energy.max - LEVEL_1.energy.scareCost);
     const result2 = sim.scare(heron.x, heron.y);
     expect(result2.ok).toBe(true);
     expect(result2.scared).toEqual([heron.id]);
     expect(sim.energy).toBe(LEVEL_1.energy.max - 2 * LEVEL_1.energy.scareCost);
-    const events = sim.drainEvents();
-    const scared = events.filter((e) => e.type === "predator-scared");
-    expect(scared).toHaveLength(result.scared.length + result2.scared.length);
   });
 
   it("does not scare a burrowed ghost crab", () => {
