@@ -35,8 +35,8 @@ population, too many starves the predators.
 
 ## Tasks
 
-- [ ] T1 Scaffold Astro + TS strict + Phaser island + Vitest; placeholder page boots canvas.
-- [ ] T2 Simulation core (TDD): hatchling crawl, predator behaviors, capture, energy, ecosystem meter, win/lose evaluation.
+- [x] T1 Scaffold Astro + TS strict + Phaser island + Vitest; placeholder page boots canvas.
+- [x] T2 Simulation core (TDD): hatchling crawl, predator behaviors, capture, energy, ecosystem meter, win/lose evaluation.
 - [ ] T3 Phaser level scene: beach layout, procedural pixel sprites, sim ↔ render binding.
 - [ ] T4 Input: unified pointer/touch scare, energy HUD, responsive scaling.
 - [ ] T5 Menu, intro, results screens (win/lose by band, score).
@@ -50,8 +50,32 @@ population, too many starves the predators.
 
 ## Progress
 
-(none yet)
+- T1 — route: delegated (gentle-ai-worker; multi-file write trigger). Commit `a27fe59`.
+  Deviation: TypeScript 5.9.3 instead of 7.0.2 (@astrojs/check 0.9.6 peer `typescript ^5`).
+  TDD: RED (missing ./config import) → GREEN 2/2. Checks: vitest pass, build pass
+  (>500 kB Phaser chunk warning), astro check 0 errors. RDD assess: unavailable (root
+  commit, no base) → treated high → independent gentle-ai-verify: all 4 checks PASS.
+  Not verified: live browser runtime. Running lines: ~260 authored (lockfile excluded).
+- T2 — route: delegated (gentle-ai-worker). Commit `f23268a` (~1510 lines incl. tests; natural size,
+  test-heavy). TDD RED→GREEN per module; 66/66 tests, check 0 errors, build pass.
+  Balance (10 seeds): passive mean 0.22 (< 0.5), perfect protector mean 1.0 (> 0.7).
+  RDD: assess unavailable → high → native review lineage `review-31e88a51a9bb65b3`
+  (tier medium, lens reliability) → approved, acknowledged (authority burned).
+  Advisory follow-ups (non-blocking): R3-001 WARNING simulation.test.ts:82-86 mutates a
+  defensive snapshot copy, so the "windup" forcing is a no-op (test passes because perched
+  birds are scareable); R3-002..008 suggestions.
+
+## Delivery slices (stacked-to-main)
+
+- PR1: `a27fe59` (T1 scaffold)
+- PR2: `f23268a` (T2 simulation core)
+
+## Follow-ups
+
+- Fix R3-001: force predator state through a test seam instead of mutating a snapshot copy.
+- Balance design: a perfect protector reaches 1.0; consider whether energy should be tighter
+  after playtesting T3/T4.
 
 ## Next step
 
-T1.
+T3.
