@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { BootScene } from "./scenes/BootScene";
+import { LevelScene } from "./scenes/LevelScene";
 
 /**
  * Logical portrait resolution, mobile-friendly (9:16).
@@ -20,7 +20,7 @@ export function createGame(parent: HTMLElement): Phaser.Game {
       mode: Phaser.Scale.FIT,
       autoCenter: Phaser.Scale.CENTER_BOTH,
     },
-    scene: [BootScene],
+    scene: [LevelScene],
   });
 }
 
