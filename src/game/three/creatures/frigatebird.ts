@@ -17,7 +17,7 @@ import { addOutline } from "../toon/outline";
 
 import { type PredatorView, type PredatorViewOptions } from "./types";
 
-const COLOR_BODY = 0x584538;
+const COLOR_BODY = 0x4e3d30;
 const COLOR_BEAK = 0x8d939e;
 const COLOR_POUCH = 0xff3b28;
 
@@ -92,7 +92,7 @@ function buildBirdWingGeometry(): THREE.BufferGeometry {
   parts.push(inner);
 
   // Outer segment: angled back and down (the W bend).
-  const outer = withColor(new THREE.SphereGeometry(0.075, 8, 5), new THREE.Color(0x6a5747));
+  const outer = withColor(new THREE.SphereGeometry(0.075, 8, 5), new THREE.Color(0x94765a));
   outer.scale(1.9, 0.24, 0.8);
   outer.rotateZ(-0.28);
   outer.rotateY(0.55);
@@ -104,7 +104,7 @@ function buildBirdWingGeometry(): THREE.BufferGeometry {
 
 /** Build the inflated red gular pouch (separate mesh: own emissive). */
 function buildBirdPouchGeometry(): THREE.BufferGeometry {
-  const pouch = withColor(new THREE.SphereGeometry(0.15, 12, 9), new THREE.Color(COLOR_POUCH));
+  const pouch = withColor(new THREE.SphereGeometry(0.17, 12, 9), new THREE.Color(COLOR_POUCH));
   pouch.scale(0.95, 1.25, 0.9);
   pouch.translate(0, -0.07, -0.28);
   return pouch;
@@ -134,13 +134,13 @@ export function createFrigatebird(options: PredatorViewOptions): PredatorView {
   wingR.scale.x = -1; // mirrored right wing
   for (const mesh of [body, pouch, wingL, wingR]) {
     mesh.castShadow = true;
-    addOutline(mesh, birdOutline, 1.07);
+    addOutline(mesh, birdOutline, 1.1);
     group.add(mesh);
   }
   // Wings pivot at the shoulders.
   wingL.position.set(0.05, 0.06, -0.02);
   wingR.position.set(-0.05, 0.06, -0.02);
-  group.scale.setScalar(1.7);
+  group.scale.setScalar(2.3);
 
   const ground = { x: 0, z: 0 };
   let prevPx = NaN;

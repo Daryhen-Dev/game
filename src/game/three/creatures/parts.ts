@@ -7,6 +7,50 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 /**
+ * Return a new geometry whose triangles are flat-colored by their face
+ * normal: facets with normal.y >= threshold get `upColor`, the rest get
+ * `sideColor`. Works for indexed and non-indexed geometries; the source is
+ * not mutated. Used for flat-shaded cartoon props (e.g. lighter top facets
+ * on a basalt boulder).
+ */
+export function colorFacetsByNormal(
+  source: THREE.BufferGeometry,
+  upColor: THREE.Color,
+  sideColor: THREE.Color,
+  threshold = 0.5,
+): THREE.BufferGeometry {
+  const geometry = source.clone();
+  const position = geometry.attributes.position as THREE.BufferAttribute;
+  const index = geometry.index;
+  const triangleCount = (index?.count ?? position.count) / 3;
+  const colors = new Float32Array(position.count * 3);
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  const normal = new THREE.Vector3();
+  for (let t = 0; t < triangleCount; t++) {
+    const i0 = index ? index.getX(t * 3) : t * 3;
+    const i1 = index ? index.getX(t * 3 + 1) : t * 3 + 1;
+    const i2 = index ? index.getX(t * 3 + 2) : t * 3 + 2;
+    a.fromBufferAttribute(position, i0);
+    b.fromBufferAttribute(position, i1);
+    c.fromBufferAttribute(position, i2);
+    normal
+      .subVectors(b, a)
+      .cross(new THREE.Vector3().subVectors(c, a))
+      .normalize();
+    const color = normal.y >= threshold ? upColor : sideColor;
+    for (const i of [i0, i1, i2]) {
+      colors[i * 3] = color.r;
+      colors[i * 3 + 1] = color.g;
+      colors[i * 3 + 2] = color.b;
+    }
+  }
+  geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  return geometry;
+}
+
+/**
  * Return a new geometry mirrored across the YZ plane (x -> -x) with outward
  * faces preserved: triangle winding is reversed and normals are mirrored, so
  * the result can be used directly (e.g. in an InstancedMesh, where a

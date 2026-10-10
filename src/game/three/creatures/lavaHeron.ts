@@ -131,7 +131,7 @@ export function createLavaHeron(options: PredatorViewOptions & { baseY: number }
   head.position.set(0, 0.3, 0);
   neckA.add(neckB);
   neckB.add(head);
-  group.scale.setScalar(1.15);
+  group.scale.setScalar(1.5);
 
   for (const mesh of [legs, body, neckA, neckB, head]) {
     mesh.castShadow = true;

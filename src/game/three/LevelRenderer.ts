@@ -309,7 +309,7 @@ export class LevelRenderer {
           ? createGhostCrab(options)
           : p.kind === "frigatebird"
             ? createFrigatebird(options)
-            : createLavaHeron({ ...options, baseY: 0.68 });
+            : createLavaHeron({ ...options, baseY: 0.56 });
       this.scene.add(view.object3D);
       this.predatorViews.set(p.id, view);
     }
