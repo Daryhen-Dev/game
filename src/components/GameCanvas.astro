@@ -1,8 +1,9 @@
 ---
 /**
- * Client-only island that mounts the Phaser game.
- * Phaser never runs during SSR/build: the engine is loaded lazily
+ * Client-only island that mounts the Three.js game renderer.
+ * Three.js never runs during SSR/build: the renderer is loaded lazily
  * inside a browser script, after the page reaches the client.
+ * (Phaser remains in the repo until the 3D cleanup task V4.)
  */
 ---
 
@@ -10,19 +11,23 @@
 
 <style>
   #game-root {
+    position: relative;
     width: 100vw;
     height: 100vh;
     height: 100dvh;
     box-sizing: border-box;
-    /* Fullscreen portrait game: kill browser touch gestures on the canvas. */
+    overflow: hidden;
+    /* Fullscreen portrait game: kill browser touch gestures on the canvas.
+       The canvas fills the root edge-to-edge; the HUD overlay (created at
+       runtime) applies its own safe-area padding. */
     touch-action: none;
     overscroll-behavior: none;
     user-select: none;
     -webkit-user-select: none;
     -webkit-tap-highlight-color: transparent;
-    /* Keep the play area clear of notches and home indicators. */
-    padding: env(safe-area-inset-top) env(safe-area-inset-right)
-      env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  #game-root canvas {
+    display: block;
   }
 </style>
 
