@@ -79,6 +79,24 @@ describe("HatchlingVisualTracker", () => {
     expect(tracker.phase(9)).toBe("sinking");
   });
 
+  it("starts sinking without a splash when first acquired already safe", () => {
+    // The renderer acquires every sim hatchling id it first sees, including
+    // ones the sim already reports as safe (post fast-forward): acquiring
+    // with alreadySafe must NOT arm the crawling -> sinking splash.
+    const tracker = new HatchlingVisualTracker();
+    tracker.acquire(11, { alreadySafe: true });
+    const step = tracker.markSafe(11, DT);
+    expect(step.splash).toBe(false);
+    expect(step.gone).toBe(false);
+    expect(step.sinkY).toBeLessThan(HATCHLING_GROUND_Y);
+  });
+
+  it("still splashes when acquired crawling and reaching the sea later", () => {
+    const tracker = new HatchlingVisualTracker();
+    tracker.acquire(12);
+    expect(tracker.markSafe(12, DT).splash).toBe(true);
+  });
+
   it("keeps ids independent", () => {
     const tracker = new HatchlingVisualTracker();
     tracker.acquire(1);

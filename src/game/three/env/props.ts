@@ -191,7 +191,6 @@ export function createProps(options: PropsOptions): EnvLayer {
     new THREE.Color(0x38342e), // dark grey-brown sides
     0.45,
   );
-  heronGeometry.dispose();
   const pitA = withColor(new THREE.SphereGeometry(0.06, 6, 5), new THREE.Color(0x201d19));
   pitA.translate(0.26, 0.1, 0.16);
   const pitB = withColor(new THREE.SphereGeometry(0.05, 6, 5), new THREE.Color(0x201d19));

@@ -1,6 +1,6 @@
 /**
  * Night ocean layer: one large transparent plane from the shoreline to the
- * horizon, driven by a MeshStandardMaterial patched via onBeforeCompile so it
+ * horizon, driven by a MeshPhysicalMaterial patched via onBeforeCompile so it
  * keeps three.js lighting, fog and tone mapping:
  *
  * - vertex: swell displacement + analytic wave normals (mirror of waves.ts),
@@ -15,8 +15,6 @@ import { FOAM_GLSL, NOISE_GLSL, WAVE_GLSL } from "./shaderChunks";
 
 export interface OceanOptions {
   seaLineZ: number;
-  /** Direction from the scene toward the moon (normalized). */
-  moonDir: THREE.Vector3;
 }
 
 export function createOcean(options: OceanOptions): EnvLayer {
@@ -33,7 +31,6 @@ export function createOcean(options: OceanOptions): EnvLayer {
     uColorDeep: { value: new THREE.Color(0x0e3148) }, // deep teal-blue offshore
     uColorShallow: { value: new THREE.Color(0x146068) }, // teal near the shore
     uColorFoam: { value: new THREE.Color(0xdfe8ee) },
-    uMoonDirW: { value: options.moonDir.clone().normalize() },
   };
 
   const material = bag.add(
@@ -92,7 +89,6 @@ export function createOcean(options: OceanOptions): EnvLayer {
       uniform vec3 uColorDeep;
       uniform vec3 uColorShallow;
       uniform vec3 uColorFoam;
-      uniform vec3 uMoonDirW;
       varying float vWaveH;
       varying vec3 vWorldPos;
       varying vec3 vWaveNormalW;
