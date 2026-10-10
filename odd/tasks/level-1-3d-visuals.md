@@ -145,4 +145,7 @@ does not read as sea.
 
 ## Next step
 
-Deliver V1–V4 as stacked-to-main PR slices (user decision on push/merge).
+Done. Delivered as PR #5 (V1, `0d324b3`), #6 (V2, `acdbc83`), #7 (V3, `8dec3d3`), #8 (V4,
+`fc6a900`), all merged to `main` with merge commits. V2 and V3 exceed the 400-line budget
+(single integration units; `size:exception` noted in each PR). Parent feature continues with
+T5 (menu, intro, results) on branch `feat/level-1-screens`.
