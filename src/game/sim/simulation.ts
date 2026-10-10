@@ -9,7 +9,7 @@ import type { Hatchling, Predator, ScareResult, SimEvent } from "./types";
 const MAX_DT_SEC = 0.1;
 
 /**
- * Pure-TS deterministic level simulation. No Phaser, no DOM: feed `update(dt)`
+ * Pure-TS deterministic level simulation. No rendering, no DOM: feed `update(dt)`
  * from a game loop or a test bot; read snapshots and drained events for
  * rendering and HUD.
  */

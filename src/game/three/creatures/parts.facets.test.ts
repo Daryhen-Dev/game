@@ -19,6 +19,36 @@ function triangleColor(
 }
 
 describe("colorFacetsByNormal", () => {
+  it("colors up-facing facets with the top color and the rest with the side color (non-indexed geometry, the production path)", () => {
+    // Production always feeds colorFacetsByNormal non-indexed merged geometry
+    // (props.ts runs it on withColor/mergeParts output); cover that branch.
+    const box = new THREE.BoxGeometry(1, 1, 1).toNonIndexed();
+    const up = new THREE.Color(0xff0000);
+    const side = new THREE.Color(0x00ff00);
+    const colored = colorFacetsByNormal(box, up, side, 0.5);
+
+    const color = colored.attributes.color as THREE.BufferAttribute;
+    const triangles = color.count; // non-indexed: one vertex per corner
+    let topTriangles = 0;
+    let sideTriangles = 0;
+    for (let t = 0; t < triangles; t += 3) {
+      // Read ALL three vertices of the triangle and require one shared color.
+      const corners = [0, 1, 2].map((k) => new THREE.Color(color.getX(t + k), color.getY(t + k), color.getZ(t + k)));
+      for (const corner of corners.slice(1)) expect(corner.equals(corners[0])).toBe(true);
+      const isTop = corners[0].getHex() === up.getHex();
+      const isSide = corners[0].getHex() === side.getHex();
+      expect(isTop || isSide).toBe(true);
+      if (isTop) topTriangles++;
+      else sideTriangles++;
+    }
+    // A box has exactly one +Y face (2 triangles) colored as top.
+    expect(topTriangles).toBe(2);
+    expect(sideTriangles).toBe(triangles / 3 - 2);
+
+    box.dispose();
+    colored.dispose();
+  });
+
   it("colors up-facing facets with the top color and the rest with the side color", () => {
     const box = new THREE.BoxGeometry(1, 1, 1); // indexed, flat per-face normals
     const up = new THREE.Color(0xff0000);

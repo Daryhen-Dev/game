@@ -51,7 +51,7 @@ does not read as sea.
       Cartoon look: toon (cel) shading with gradient ramp, inverted-hull outlines, big
       readable silhouettes (chunky proportions, big eyes), saturated palette, squash &
       stretch; apply toon materials to props too so the scene is coherent.
-- [ ] V4 Cleanup: remove Phaser + pixelArt/rasterize/textures, update docs; final perf check.
+- [x] V4 Cleanup: remove Phaser + pixelArt/rasterize/textures, update docs; final perf check.
 
 ## Acceptance
 
@@ -125,7 +125,24 @@ does not read as sea.
   Advisories (non-blocking): splash-on-first-sight (LevelRenderer.ts:335-345), hatchling pool
   exhaustion silently skips, telegraph progress denominator; facet helper non-indexed branch
   untested; redundant heron geometry dispose; stale ocean header comment.
+- V4 — route: delegated (gentle-ai-worker). Commit `c677e16` (+317 / −1462). Phaser dependency
+  and pixel-art pipeline deleted; `diveTelegraph` moved to `src/game/three/telegraph.ts` with a
+  clamped `progress` (fixes the double-counted telegraph growth: old proxy radius/max started
+  at 0.15/0.08, not 0); `HatchlingVisualTracker.acquire({alreadySafe})` (no splash for
+  hatchlings first seen safe); unused `uMoonDirW` removed; non-indexed facet test added;
+  `?perf=1` probe. Bundle: Phaser was never in the client graph (0 bytes saved); main chunk
+  626.8 kB raw / 159.1 kB gzip; three r186 renderer floor measured at 528/129 kB, so
+  `chunkSizeWarningLimit: 650` with the numbers in `astro.config.mjs`. Perf (SwiftShader,
+  `?seed=7&t=12&w=390&perf=1`, 5 samples): draw calls 113–118 steady (123 transient with
+  several FX), programs 19, geometries 42 and textures 5 stable (no leak). TDD RED → GREEN for
+  telegraph and tracker. Checks (parent, full output): 225/225 tests (pixel-art tests removed),
+  check `Result (76 files): 0 errors, 0 warnings, 0 hints`, build pass. Screenshot identical
+  in content to V3.
+  RDD: native START `consent-binding-expired`, no lineage → independent gentle-ai-verify PASS,
+  no blockers/warnings. Note: headless Chrome here does not write JS console to stderr, so
+  earlier "0 console errors" greps were not evidence; the V4 worker confirmed zero exceptions
+  via CDP.
 
 ## Next step
 
-V4: remove Phaser + pixel-art pipeline, perf check; then PR slices for V1–V4.
+Deliver V1–V4 as stacked-to-main PR slices (user decision on push/merge).

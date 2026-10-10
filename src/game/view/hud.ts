@@ -1,7 +1,7 @@
 /**
  * Pure HUD model for Level 1: energy bar, ecosystem meter and scare feedback.
  *
- * No Phaser, no DOM: the scene calls these once per frame with the current
+ * No Three.js, no DOM: the renderer calls these once per frame with the current
  * simulation snapshot and paints the returned numbers.
  */
 import type { EnergyConfig, HealthyBand, ScareResult } from "../sim";

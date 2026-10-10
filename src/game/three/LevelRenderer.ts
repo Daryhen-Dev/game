@@ -23,7 +23,7 @@ import {
   scareFeedback,
   type ScareFeedbackKind,
 } from "../view/hud";
-import { diveTelegraph } from "../view/presentation";
+import { diveTelegraph } from "./telegraph";
 import { cameraRig } from "./camera";
 import { type EnvLayer } from "./env/env";
 import { createOcean } from "./env/ocean";
@@ -134,6 +134,15 @@ export class LevelRenderer {
   private readonly pointerNdc = new THREE.Vector2();
   private readonly onPointerDown = (event: PointerEvent): void => this.handlePointerDown(event);
 
+  // ?perf=1 debug sampling: every PERF_SAMPLE_FRAMES rendered frames, log one
+  // line with renderer.info counters and the average frame CPU time. Software
+  // renderers (headless SwiftShader) make absolute FPS meaningless, so perf
+  // checks compare draw calls / programs / resource counts instead.
+  private readonly perfEnabled: boolean;
+  private perfFrames = 0;
+  private perfCpuMsTotal = 0;
+  private static readonly PERF_SAMPLE_FRAMES = 120;
+
   constructor(container: HTMLElement, options: LevelRendererOptions) {
     this.container = container;
     this.config = options.config;
@@ -148,6 +157,7 @@ export class LevelRenderer {
     const debugH = Number(debugParams.get("h"));
     if (Number.isFinite(debugW) && debugW > 0) this.container.style.width = `${debugW}px`;
     if (Number.isFinite(debugH) && debugH > 0) this.container.style.height = `${debugH}px`;
+    this.perfEnabled = debugParams.get("perf") === "1";
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -242,7 +252,6 @@ export class LevelRenderer {
       createSky({ seed: this.configHashSeed() }),
       createOcean({
         seaLineZ: seaZ,
-        moonDir: new THREE.Vector3(0, 0.38, -0.925).normalize(),
       }),
       createSand({ world: this.world }),
       createProps({
@@ -334,7 +343,9 @@ export class LevelRenderer {
 
       if (!this.hatchlingPool.has(h.id)) {
         this.hatchlingPool.acquire(h.id);
-        this.visualTracker.acquire(h.id);
+        // Hatchlings the sim already reports as safe at first sight (post
+        // fast-forward) start sinking directly: no splash on first sight.
+        this.visualTracker.acquire(h.id, { alreadySafe: h.state === "safe" });
         this.hatchlingTracks.set(h.id, {
           prevX: h.x,
           prevZ: h.y,
@@ -436,15 +447,14 @@ export class LevelRenderer {
       return;
     }
     const ground = simToWorldInto(tele.x, tele.y, this.world, this.groundScratch);
-    const progress = tele.radius / Math.max(1e-3, this.telegraphMaxRadius(p));
-    this.targetMarkers.set(p.id, ground.x, ground.z, tele.radius * SCALE_M_PER_PX * 1.15, progress, timeSec);
-  }
-
-  /** Max telegraph radius for a windup predator (for progress estimation). */
-  private telegraphMaxRadius(p: Predator): number {
-    if (p.tunables.kind === "frigatebird") return p.tunables.diveRadius;
-    if (p.tunables.kind === "lavaHeron") return p.tunables.reachRadius;
-    return 1;
+    this.targetMarkers.set(
+      p.id,
+      ground.x,
+      ground.z,
+      tele.radius * SCALE_M_PER_PX * 1.15,
+      tele.progress,
+      timeSec,
+    );
   }
 
   private syncRings(dt: number): void {
@@ -537,6 +547,28 @@ export class LevelRenderer {
   // --- loop / resize ---
 
   private readonly frame = (): void => {
+    if (!this.perfEnabled) {
+      this.tick();
+      return;
+    }
+    const startMs = performance.now();
+    this.tick();
+    this.perfCpuMsTotal += performance.now() - startMs;
+    this.perfFrames++;
+    if (this.perfFrames < LevelRenderer.PERF_SAMPLE_FRAMES) return;
+    const render = this.renderer.info.render;
+    const memory = this.renderer.info.memory;
+    const programs = this.renderer.info.programs?.length ?? 0;
+    console.log(
+      `[perf] frames=${this.perfFrames} drawCalls=${render.calls} triangles=${render.triangles} ` +
+        `geometries=${memory.geometries} textures=${memory.textures} programs=${programs} ` +
+        `avgFrameCpuMs=${(this.perfCpuMsTotal / this.perfFrames).toFixed(2)}`,
+    );
+    this.perfFrames = 0;
+    this.perfCpuMsTotal = 0;
+  };
+
+  private tick(): void {
     this.timer.update();
     const dt = Math.min(this.timer.getDelta(), MAX_FRAME_SEC);
     if (!this.sim.finished) {
@@ -563,7 +595,7 @@ export class LevelRenderer {
       { safe: counts.safe, total: this.config.hatchlings },
     );
     this.renderer.render(this.scene, this.camera);
-  };
+  }
 
   private resize(): void {
     const width = this.container.clientWidth;

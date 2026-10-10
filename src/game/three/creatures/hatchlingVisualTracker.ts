@@ -41,11 +41,19 @@ export class HatchlingVisualTracker {
     return this.states.get(id)?.phase ?? "absent";
   }
 
-  /** absent -> crawling. Never resurrects a gone id. */
-  acquire(id: number): void {
+  /** absent -> crawling (or straight to sinking when already safe). Never resurrects a gone id. */
+  acquire(id: number, options: { alreadySafe?: boolean } = {}): void {
     const state = this.states.get(id);
     if (state && state.phase !== "absent") return;
-    this.states.set(id, { phase: "crawling", sinkY: HATCHLING_GROUND_Y });
+    // A hatchling the sim already reports as safe at first sight (post
+    // fast-forward) starts sinking directly: arming the crawling phase here
+    // would fire the splash on the next markSafe frame.
+    this.states.set(
+      id,
+      options.alreadySafe
+        ? { phase: "sinking", sinkY: HATCHLING_GROUND_Y }
+        : { phase: "crawling", sinkY: HATCHLING_GROUND_Y },
+    );
   }
 
   /** Terminal (caught by a predator, or call after the pool release). */
