@@ -42,6 +42,7 @@ import { ToonMaterialFactory } from "./toon/toonMaterials";
 import { createOutlinePalette } from "./toon/outline";
 import { HudOverlay } from "./hudOverlay";
 import { rayToGround } from "./picking";
+import type { SimOutcome } from "../screens/results";
 import { SCALE_M_PER_PX, seaLineZ, simToWorldInto, worldToSim } from "./worldMap";
 
 /** Fixed simulation step (60 Hz) decoupled from the render frame rate. */
@@ -75,12 +76,22 @@ const FX = {
   splash: 0xeaf6ff,
 } as const;
 
+export interface LevelEndedResult {
+  outcome: SimOutcome;
+  rate: number;
+  score: number;
+}
+
 export interface LevelRendererOptions {
   config: LevelConfig;
   seed: number;
   rng: Rng;
   /** Simulated seconds to fast-forward before the first render (?t= debug). */
   fastForwardSec?: number;
+  /** Attract mode: render the scene but ignore all scare input. */
+  inputEnabled?: boolean;
+  /** Called once when the simulation finishes (win or lose). */
+  onLevelEnded?: (result: LevelEndedResult) => void;
 }
 
 interface RingEntry {
@@ -105,6 +116,8 @@ export class LevelRenderer {
   private readonly scene: THREE.Scene;
   private readonly camera: THREE.PerspectiveCamera;
   private readonly hud: HudOverlay;
+  private readonly inputEnabled: boolean;
+  private readonly onLevelEnded?: (result: LevelEndedResult) => void;
   private readonly envLayers: EnvLayer[];
   private readonly resizeObserver: ResizeObserver;
   private readonly timer = new THREE.Timer();
@@ -148,6 +161,8 @@ export class LevelRenderer {
     this.config = options.config;
     this.world = options.config.world;
     this.sim = new Simulation(options.config, options.rng);
+    this.inputEnabled = options.inputEnabled ?? true;
+    this.onLevelEnded = options.onLevelEnded;
 
     // Debug viewport pin (?w=<px>&h=<px>): headless Chrome clamps the window
     // to 500px wide, so phone-sized screenshots crop a 500px layout. Pinning
@@ -479,7 +494,7 @@ export class LevelRenderer {
     for (const event of events) {
       switch (event.type) {
         case "level-ended":
-          this.hud.showOutcome(event.outcome, event.rate, event.score);
+          this.onLevelEnded?.({ outcome: event.outcome, rate: event.rate, score: event.score });
           break;
         case "predator-scared": {
           const predator = this.sim.predators.find((p) => p.id === event.predatorId);
@@ -524,7 +539,7 @@ export class LevelRenderer {
   // --- input ---
 
   private handlePointerDown(event: PointerEvent): void {
-    if (this.sim.finished) return;
+    if (!this.inputEnabled || this.sim.finished) return;
     const rect = this.renderer.domElement.getBoundingClientRect();
     this.pointerNdc.set(
       ((event.clientX - rect.left) / rect.width) * 2 - 1,
@@ -613,6 +628,22 @@ export class LevelRenderer {
     this.camera.position.set(rig.position.x, rig.position.y, rig.position.z);
     this.camera.lookAt(rig.target.x, rig.target.y, rig.target.z);
     this.camera.updateProjectionMatrix();
+  }
+
+  /** Show/hide the HUD strip (the shell hides it behind menu/intro screens). */
+  setHudVisible(visible: boolean): void {
+    this.hud.setVisible(visible);
+  }
+
+  /** GPU resource counters for leak checks (?perf=1 debug and the shell). */
+  resourceCounts(): { geometries: number; textures: number; programs: number; drawCalls: number } {
+    const memory = this.renderer.info.memory;
+    return {
+      geometries: memory.geometries,
+      textures: memory.textures,
+      programs: this.renderer.info.programs?.length ?? 0,
+      drawCalls: this.renderer.info.render.calls,
+    };
   }
 
   dispose(): void {

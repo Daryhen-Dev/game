@@ -2,10 +2,12 @@
  * HTML/CSS HUD overlay for the Three.js renderer.
  *
  * Pure DOM (no Three.js): a top strip with the energy bar and ecosystem
- * meter, a Spanish status line, and an outcome panel. The whole overlay has
+ * meter, and a Spanish status line. The whole overlay has
  * `pointer-events: none` so HUD taps never reach the game canvas; floating
- * scare-feedback labels are also rendered here. DOM writes only happen when
- * a displayed value actually changes (no layout thrash per frame).
+ * scare-feedback labels are also rendered here. The end-of-level outcome
+ * panel lives in the dedicated screens layer (screens.ts), not here. DOM
+ * writes only happen when a displayed value actually changes (no layout
+ * thrash per frame).
  */
 import { statusLabel, type EcosystemMeter, type EnergyBar, type ScareFeedbackKind } from "../view/hud";
 
@@ -96,22 +98,6 @@ const CSS = `
   pointer-events: none;
   box-shadow: inset 0 0 130px rgba(4, 8, 18, 0.55);
 }
-.hud3d-outcome {
-  display: none;
-  margin: auto;
-  max-width: 85%;
-  padding: 18px 22px;
-  border-radius: 10px;
-  background: rgba(11, 16, 32, 0.88);
-  border: 1px solid rgba(232, 230, 216, 0.4);
-  text-align: center;
-  font-size: 15px;
-  line-height: 1.5;
-}
-.hud3d-outcome.is-visible { display: block; }
-.hud3d-outcome-title { font-size: 17px; font-weight: 700; margin: 0 0 6px; }
-.hud3d-outcome-title.is-good { color: #8fd07a; }
-.hud3d-outcome-title.is-bad { color: #ff8a7a; }
 .hud3d-label {
   position: absolute;
   transform: translate(-50%, -100%);
@@ -129,12 +115,6 @@ const CSS = `
   100% { opacity: 0; margin-top: -14px; }
 }
 `;
-
-const OUTCOME_TITLES: Record<string, string> = {
-  balanced: "¡Ecosistema en equilibrio!",
-  "turtle-collapse": "Colapso de tortugas",
-  "predators-starve": "Depredadores sin alimento",
-};
 
 const LABEL_CLASS: Record<ScareFeedbackKind, string> = {
   hit: "is-hit",
@@ -164,9 +144,6 @@ export class HudOverlay {
   private readonly meterSafe: HTMLDivElement;
   private readonly meterCaught: HTMLDivElement;
   private readonly statusText: HTMLSpanElement;
-  private readonly outcomePanel: HTMLDivElement;
-  private readonly outcomeTitle: HTMLParagraphElement;
-  private readonly outcomeBody: HTMLParagraphElement;
   private readonly labelLayer: HTMLDivElement;
   private readonly vignette: HTMLDivElement;
   private readonly labelTimeouts = new Set<ReturnType<typeof setTimeout>>();
@@ -230,17 +207,6 @@ export class HudOverlay {
     this.statusText.setAttribute("role", "status");
     this.statusText.setAttribute("aria-live", "polite");
 
-    // Outcome panel (hidden until the level ends).
-    this.outcomePanel = document.createElement("div");
-    this.outcomePanel.className = "hud3d-outcome";
-    this.outcomePanel.setAttribute("role", "status");
-    this.outcomeTitle = document.createElement("p");
-    this.outcomeTitle.className = "hud3d-outcome-title";
-    this.outcomeBody = document.createElement("p");
-    this.outcomeBody.className = "hud3d-status";
-    this.outcomePanel.appendChild(this.outcomeTitle);
-    this.outcomePanel.appendChild(this.outcomeBody);
-
     // Floating scare-feedback labels + soft vignette (night mood).
     this.labelLayer = document.createElement("div");
     this.labelLayer.className = "hud3d-label-layer";
@@ -250,7 +216,6 @@ export class HudOverlay {
     this.root.appendChild(energyRow);
     this.root.appendChild(meter);
     this.root.appendChild(this.statusText);
-    this.root.appendChild(this.outcomePanel);
     this.root.appendChild(this.labelLayer);
     this.root.appendChild(this.vignette);
     container.appendChild(this.root);
@@ -275,6 +240,11 @@ export class HudOverlay {
     this.cachedStatus.set(`${counts.safe}/${counts.total} · ${statusLabel(meter.status)}`);
   }
 
+  /** Show/hide the whole HUD strip (hidden behind menu/intro screens). */
+  setVisible(visible: boolean): void {
+    this.root.style.display = visible ? "" : "none";
+  }
+
   /** Brief floating label near a screen point (scare feedback). */
   showFloatingLabel(text: string, kind: ScareFeedbackKind, clientX: number, clientY: number): void {
     const label = document.createElement("div");
@@ -290,13 +260,6 @@ export class HudOverlay {
     this.labelTimeouts.add(timeout);
   }
 
-  showOutcome(outcome: keyof typeof OUTCOME_TITLES, rate: number, score: number): void {
-    this.outcomeTitle.textContent = OUTCOME_TITLES[outcome];
-    this.outcomeTitle.classList.toggle("is-good", outcome === "balanced");
-    this.outcomeTitle.classList.toggle("is-bad", outcome !== "balanced");
-    this.outcomeBody.textContent = `${Math.round(rate * 100)}% de supervivencia · ${score} puntos`;
-    this.outcomePanel.classList.add("is-visible");
-  }
 
   /** Screen-point -> label coordinate space is the overlay root. */
   toLocalX(clientX: number, container: HTMLElement): number {
