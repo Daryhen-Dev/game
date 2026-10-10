@@ -58,7 +58,7 @@ export function createSand(options: SandOptions): EnvLayer {
     new THREE.MeshStandardMaterial({
       // Pale cool beige sand; lights + tone patches below keep it from reading
       // as a flat grey plate.
-      color: 0xe6d4a6,
+      color: 0xf0ca90,
       roughness: 1,
       metalness: 0,
     }),
@@ -95,17 +95,19 @@ export function createSand(options: SandOptions): EnvLayer {
           float sandEdge = waterEdgeZ(vSandWorldPos.x, uTime, uSeaLineZ);
           // Wet sand: darker where the water reaches (and recently reached).
           float sandWet = clamp((sandEdge + 0.2 - vSandWorldPos.z) / 2.2, 0.0, 1.0);
-          diffuseColor.rgb *= mix(1.0, 0.55, sandWet);
+          diffuseColor.rgb *= mix(1.0, 0.48, sandWet);
           // Foam film left by the swash on the sand side of the edge.
           float sandFoam = foamStrength(vSandWorldPos.z, vSandWorldPos.x, uTime, uSeaLineZ)
             * (1.0 - smoothstep(sandEdge, sandEdge + 0.7, vSandWorldPos.z));
           diffuseColor.rgb = mix(diffuseColor.rgb, uColorFoam, sandFoam * 0.9);
           gSandFoam = sandFoam;
-          // Subtle wave-formed ripples (elongated along the shore) plus
-          // large-scale tone patches so the beach is not a uniform plate.
+          // Subtle wave-formed ripples (kept low for a flatter cartoon sand)
+          // plus larger-scale tone patches so the beach is not a uniform plate.
           float sandRipple = vnoise(vec2(vSandWorldPos.x * 0.9, vSandWorldPos.z * 3.4));
           float sandPatch = vnoise(vSandWorldPos.xz * 0.16 + 7.3);
-          diffuseColor.rgb *= (0.93 + 0.14 * sandRipple) * (0.88 + 0.24 * sandPatch);
+          // Quantize the large-scale patches into flat cartoon tone bands.
+          float sandBand = floor(sandPatch * 3.0) / 3.0;
+          diffuseColor.rgb *= (0.96 + 0.07 * sandRipple) * (0.76 + 0.4 * sandBand);
         }
         `,
       )

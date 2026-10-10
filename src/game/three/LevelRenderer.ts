@@ -2,12 +2,11 @@
  * Three.js level renderer for Level 1 "Bahía Las Bachas".
  *
  * Thin glue over the pure layers: drives the deterministic `Simulation` with
- * a fixed-step accumulator, renders placeholder low-poly meshes (pooled by
- * entity id, shared geometries/materials, no per-frame allocation), handles
- * ground-raycast scare input and feeds the HTML HUD overlay.
- *
- * V1 foundation + V2 environment: night beach scene (sky/ocean/sand/props
- * live in `./env/*`), placeholder shapes for creatures until V3.
+ * a fixed-step accumulator, renders the cartoon V3 creature models (toon
+ * shading + inverted-hull outlines, pooled by entity id, no per-frame
+ * allocation), handles ground-raycast scare input, pooled FX (scare puffs,
+ * catch dust, safe splashes, "!" alerts, bullseye dive telegraphs) and feeds
+ * the HTML HUD overlay.
  */
 import * as THREE from "three";
 import {
@@ -31,46 +30,50 @@ import { createOcean } from "./env/ocean";
 import { createProps } from "./env/props";
 import { createSand } from "./env/sand";
 import { createSky, HORIZON_COLOR } from "./env/sky";
+import { createGhostCrab, createFrigatebird, createLavaHeron, type PredatorView } from "./creatures/creatures";
+import { HatchlingPool, HATCHLING_GROUND_Y } from "./creatures/hatchling";
+import { HatchlingVisualTracker } from "./creatures/hatchlingVisualTracker";
+import { hatchlingPose } from "./creatures/hatchlingPose";
+import { headingFromVelocity } from "./creatures/heading";
+import { AlertPool } from "./fx/alert";
+import { BurstPool } from "./fx/bursts";
+import { TargetMarkerPool } from "./fx/targetMarker";
+import { ToonMaterialFactory } from "./toon/toonMaterials";
+import { createOutlinePalette } from "./toon/outline";
 import { HudOverlay } from "./hudOverlay";
 import { rayToGround } from "./picking";
-import { SCALE_M_PER_PX, seaLineZ, simToWorld, worldToSim } from "./worldMap";
+import { SCALE_M_PER_PX, seaLineZ, simToWorldInto, worldToSim } from "./worldMap";
 
 /** Fixed simulation step (60 Hz) decoupled from the render frame rate. */
 const FIXED_STEP_SEC = 1 / 60;
 /** Cap accumulated time so tab switches don't cause a catch-up spiral. */
 const MAX_FRAME_SEC = 0.25;
-/** Frigatebird hover height (meters); descends during the windup. */
-const BIRD_HOVER_M = 4;
-const BIRD_WINDUP_DROP_M = 3.2;
-/** Resting heights of ground placeholders (meters). */
-const HATCHLING_Y_M = 0.14;
-const CRAB_Y_M = 0.08;
-const HERON_Y_M = 0.65;
-/** Safe hatchlings sink into the sand/water at this speed. */
-const SINK_SPEED_M = 0.25;
-const SINK_HIDDEN_Y_M = -0.3;
 /** Scare ring animation lifetime (seconds). */
 const RING_LIFE_SEC = 0.28;
 const RING_POOL_SIZE = 4;
 
 const COLORS = {
   horizon: HORIZON_COLOR,
-  hatchling: 0x3fae5c,
-  crab: 0xd8cbb0,
-  bird: 0x6b5b4a,
-  birdThroat: 0xc4362c,
-  heron: 0x828a96,
-  telegraph: 0x4a2018,
+  telegraph: 0xff5a36,
   ringHit: 0x8fd07a,
   ringMiss: 0x9aa0a8,
   ringNoEnergy: 0xff6b5e,
+  ringSafe: 0xeaf4fb,
 } as const;
 
-const RING_COLOR: Record<ScareFeedbackKind, number> = {
+const RING_COLOR: Record<ScareFeedbackKind | "safe", number> = {
   hit: COLORS.ringHit,
   miss: COLORS.ringMiss,
   "no-energy": COLORS.ringNoEnergy,
+  safe: COLORS.ringSafe,
 };
+
+/** Cartoon FX palettes. */
+const FX = {
+  scarePuff: 0xfff0b8,
+  dust: 0xd8c49a,
+  splash: 0xeaf6ff,
+} as const;
 
 export interface LevelRendererOptions {
   config: LevelConfig;
@@ -80,16 +83,17 @@ export interface LevelRendererOptions {
   fastForwardSec?: number;
 }
 
-interface TelegraphEntry {
-  mesh: THREE.Mesh;
-  material: THREE.MeshBasicMaterial;
-}
-
 interface RingEntry {
   mesh: THREE.Mesh;
   material: THREE.MeshBasicMaterial;
   ageSec: number;
   active: boolean;
+}
+
+interface HatchlingTrack {
+  prevX: number;
+  prevZ: number;
+  heading: number;
 }
 
 export class LevelRenderer {
@@ -106,36 +110,26 @@ export class LevelRenderer {
   private readonly timer = new THREE.Timer();
   private accumulator = 0;
 
-  // Shared geometry/material set (never allocated per frame).
-  private readonly geometries = {
-    hatchling: new THREE.SphereGeometry(0.2, 10, 8),
-    crab: new THREE.BoxGeometry(0.42, 0.16, 0.3),
-    bird: new THREE.ConeGeometry(0.4, 1.1, 4),
-    birdThroat: new THREE.SphereGeometry(0.12, 8, 6),
-    heron: new THREE.CylinderGeometry(0.12, 0.18, 1.3, 8),
-    telegraph: new THREE.CircleGeometry(1, 24),
-    ring: new THREE.RingGeometry(0.86, 1, 32),
-  } as const;
+  // Cartoon material system (V3).
+  private readonly toon = new ToonMaterialFactory();
+  private readonly outlinePalette = createOutlinePalette();
 
-  private readonly materials = {
-    hatchling: new THREE.MeshStandardMaterial({ color: COLORS.hatchling, roughness: 0.8 }),
-    crab: new THREE.MeshStandardMaterial({ color: COLORS.crab, roughness: 0.9 }),
-    bird: new THREE.MeshStandardMaterial({ color: COLORS.bird, roughness: 0.7, emissive: 0x352b20 }),
-    birdThroat: new THREE.MeshStandardMaterial({
-      color: COLORS.birdThroat,
-      roughness: 0.6,
-      emissive: 0x501408,
-    }),
-    heron: new THREE.MeshStandardMaterial({ color: COLORS.heron, roughness: 0.85, emissive: 0x12161c }),
-  } as const;
+  // Creature pools.
+  private readonly hatchlingPool: HatchlingPool;
+  private readonly hatchlingTracks = new Map<number, HatchlingTrack>();
+  /** Splash-once / never-re-acquire lifecycle for safe hatchlings. */
+  private readonly visualTracker = new HatchlingVisualTracker();
+  private readonly predatorViews = new Map<string, PredatorView>();
 
-  // Entity pools keyed by sim ids.
-  private readonly hatchlingMeshes = new Map<number, THREE.Mesh>();
-  private readonly predatorMeshes = new Map<string, THREE.Mesh>();
-  private readonly telegraphEntries = new Map<string, TelegraphEntry>();
+  // FX pools.
+  private readonly bursts = new BurstPool(4, 5);
+  private readonly alerts = new AlertPool(4);
+  private readonly targetMarkers: TargetMarkerPool;
+  private readonly birdShadow: THREE.Mesh;
   private readonly rings: RingEntry[] = [];
   private nextRingIndex = 0;
 
+  private readonly telegraphGeometry = new THREE.RingGeometry(0.86, 1, 32);
   private readonly raycaster = new THREE.Raycaster();
   private readonly pointerNdc = new THREE.Vector2();
   private readonly onPointerDown = (event: PointerEvent): void => this.handlePointerDown(event);
@@ -161,7 +155,7 @@ export class LevelRenderer {
     // r186: PCFShadowMap performs the soft filtering (PCFSoftShadowMap is deprecated).
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.6;
+    this.renderer.toneMappingExposure = 1.45;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.domElement.addEventListener("pointerdown", this.onPointerDown);
     container.appendChild(this.renderer.domElement);
@@ -176,6 +170,27 @@ export class LevelRenderer {
     this.buildLights();
     this.envLayers = this.buildEnvironment();
     for (const layer of this.envLayers) this.scene.add(layer.group);
+
+    this.hatchlingPool = new HatchlingPool(
+      options.config.hatchlings,
+      this.toon,
+      this.outlinePalette.material,
+    );
+    this.scene.add(this.hatchlingPool.group);
+    this.scene.add(this.bursts.group);
+    this.scene.add(this.alerts.group);
+    this.targetMarkers = new TargetMarkerPool(4);
+    this.scene.add(this.targetMarkers.group);
+
+    // Soft shadow blob under the diving bird.
+    this.birdShadow = new THREE.Mesh(
+      new THREE.CircleGeometry(0.45, 20),
+      new THREE.MeshBasicMaterial({ color: 0x0a0d14, transparent: true, opacity: 0.35, depthWrite: false }),
+    );
+    this.birdShadow.rotation.x = -Math.PI / 2;
+    this.birdShadow.visible = false;
+    this.scene.add(this.birdShadow);
+
     this.buildRings();
 
     this.hud = new HudOverlay(container);
@@ -234,6 +249,8 @@ export class LevelRenderer {
         world: this.world,
         predators: this.config.predators,
         seed: this.configHashSeed() ^ 0x9e3779b9,
+        toon: this.toon,
+        outlineMaterial: this.outlinePalette.material,
       }),
     ];
   }
@@ -256,7 +273,7 @@ export class LevelRenderer {
         depthWrite: false,
         side: THREE.DoubleSide,
       });
-      const mesh = new THREE.Mesh(this.geometries.ring, material);
+      const mesh = new THREE.Mesh(this.telegraphGeometry, material);
       mesh.rotation.x = -Math.PI / 2;
       mesh.visible = false;
       this.scene.add(mesh);
@@ -264,137 +281,170 @@ export class LevelRenderer {
     }
   }
 
-  // --- entity pools ---
-
-  private hatchlingMesh(id: number): THREE.Mesh {
-    let mesh = this.hatchlingMeshes.get(id);
-    if (!mesh) {
-      mesh = new THREE.Mesh(this.geometries.hatchling, this.materials.hatchling);
-      mesh.scale.set(1, 0.65, 1); // dome
-      mesh.castShadow = true;
-      mesh.position.y = HATCHLING_Y_M;
-      this.scene.add(mesh);
-      this.hatchlingMeshes.set(id, mesh);
-    }
-    return mesh;
+  /** Spawn a ground ring (scare feedback, safe splash) from the pool. */
+  private spawnRing(x: number, z: number, color: number, scaleM: number): void {
+    const ring = this.rings[this.nextRingIndex];
+    this.nextRingIndex = (this.nextRingIndex + 1) % this.rings.length;
+    ring.ageSec = 0;
+    ring.active = true;
+    ring.mesh.position.set(x, 0.04, z);
+    ring.mesh.scale.setScalar(scaleM);
+    ring.material.color.setHex(color);
+    ring.material.opacity = 0.9;
+    ring.mesh.visible = true;
   }
 
-  private predatorMesh(p: Predator): THREE.Mesh {
-    let mesh = this.predatorMeshes.get(p.id);
-    if (!mesh) {
-      const geometry =
-        p.kind === "ghostCrab"
-          ? this.geometries.crab
-          : p.kind === "frigatebird"
-            ? this.geometries.bird
-            : this.geometries.heron;
-      const material =
-        p.kind === "ghostCrab"
-          ? this.materials.crab
-          : p.kind === "frigatebird"
-            ? this.materials.bird
-            : this.materials.heron;
-      mesh = new THREE.Mesh(geometry, material);
-      mesh.castShadow = true;
-      if (p.kind === "frigatebird") {
-        // Cone tip points toward the sea (-Z); red throat pouch dot so the
-        // silhouette reads as a frigatebird even before the V3 model.
-        mesh.rotation.x = -Math.PI / 2;
-        const throat = new THREE.Mesh(
-          this.geometries.birdThroat,
-          this.materials.birdThroat,
-        );
-        throat.position.set(0, 0.35, -0.16);
-        mesh.add(throat);
-      }
-      this.scene.add(mesh);
-      this.predatorMeshes.set(p.id, mesh);
-    }
-    return mesh;
-  }
+  // --- creature pools ---
 
-  private telegraphEntry(id: string): TelegraphEntry {
-    let entry = this.telegraphEntries.get(id);
-    if (!entry) {
-      const material = new THREE.MeshBasicMaterial({
-        color: COLORS.telegraph,
-        transparent: true,
-        depthWrite: false,
-      });
-      const mesh = new THREE.Mesh(this.geometries.telegraph, material);
-      mesh.rotation.x = -Math.PI / 2;
-      mesh.visible = false;
-      this.scene.add(mesh);
-      entry = { mesh, material };
-      this.telegraphEntries.set(id, entry);
+  private predatorView(p: Predator): PredatorView {
+    let view = this.predatorViews.get(p.id);
+    if (!view) {
+      const options = {
+        world: this.world,
+        factory: this.toon,
+        outlineMaterial: this.outlinePalette.material,
+      };
+      view =
+        p.kind === "ghostCrab"
+          ? createGhostCrab(options)
+          : p.kind === "frigatebird"
+            ? createFrigatebird(options)
+            : createLavaHeron({ ...options, baseY: 0.56 });
+      this.scene.add(view.object3D);
+      this.predatorViews.set(p.id, view);
     }
-    return entry;
+    return view;
   }
 
   // --- per-frame sync ---
 
-  private syncHatchlings(dt: number): void {
+  private syncHatchlings(dt: number, simTimeSec: number): void {
+    const wobbleAmp = this.config.hatchling.wobble;
     for (const h of this.sim.hatchlings) {
-      const mesh = this.hatchlingMesh(h.id);
       if (h.state === "caught") {
-        mesh.visible = false;
+        this.hatchlingPool.release(h.id);
+        this.hatchlingTracks.delete(h.id);
+        this.visualTracker.markCaught(h.id);
         continue;
       }
-      const ground = simToWorld(h.x, h.y, this.world);
-      mesh.position.x = ground.x;
-      mesh.position.z = ground.z;
-      if (h.state === "safe") {
-        // Sink into the water; hide once fully below the sea plane.
-        mesh.position.y = Math.max(SINK_HIDDEN_Y_M, mesh.position.y - SINK_SPEED_M * dt);
-        mesh.visible = mesh.position.y > SINK_HIDDEN_Y_M;
-      } else {
-        mesh.position.y = HATCHLING_Y_M;
-        mesh.visible = true;
+      // Terminal ids (fully sunk or caught) are never re-acquired: the sim
+      // keeps safe hatchlings in its list forever, and re-acquiring them
+      // used to re-fire the splash/ring every ~1.2 s.
+      if (this.visualTracker.phase(h.id) === "gone") continue;
+
+      if (!this.hatchlingPool.has(h.id)) {
+        this.hatchlingPool.acquire(h.id);
+        this.visualTracker.acquire(h.id);
+        this.hatchlingTracks.set(h.id, {
+          prevX: h.x,
+          prevZ: h.y,
+          heading: 0,
+        });
       }
+      const track = this.hatchlingTracks.get(h.id)!;
+      const ground = simToWorldInto(h.x, h.y, this.world, this.groundScratch);
+
+      // Heading from the crawl velocity (forward + lateral wobble).
+      const wobbleVx = h.state === "crawling" ? wobbleAmp * Math.sin(simTimeSec * 2 + h.wobblePhase) : 0;
+      const vz = h.state === "crawling" ? -h.speed : 0;
+      if (h.state === "crawling") {
+        track.heading = headingFromVelocity(wobbleVx * SCALE_M_PER_PX, vz * SCALE_M_PER_PX);
+      }
+
+      let y = HATCHLING_GROUND_Y;
+      if (h.state === "safe") {
+        // Splash exactly once (crawling -> sinking), then sink into the water.
+        const step = this.visualTracker.markSafe(h.id, dt);
+        if (step.splash) {
+          this.bursts.spawn({
+            x: ground.x,
+            y: 0.12,
+            z: ground.z,
+            color: FX.splash,
+            upBias: 1,
+            radius: 0.4,
+            size: 0.07,
+            lifeSec: 0.5,
+          });
+          this.spawnRing(ground.x, ground.z, RING_COLOR.safe, 0.4);
+        }
+        if (step.gone) {
+          this.hatchlingPool.release(h.id);
+          this.hatchlingTracks.delete(h.id);
+          continue;
+        }
+        y = step.sinkY;
+      }
+
+      const pose =
+        h.state === "crawling"
+          ? hatchlingPose(h.speed, h.wobblePhase, simTimeSec)
+          : hatchlingPose(0, h.wobblePhase, simTimeSec);
+      this.hatchlingPool.write(h.id, {
+        x: ground.x,
+        y,
+        z: ground.z,
+        heading: track.heading,
+        roll: pose.roll,
+        squash: pose.squash,
+        flipperL: pose.flipperL,
+        flipperR: pose.flipperR,
+      });
     }
+    this.hatchlingPool.commit();
   }
 
-  private syncPredators(): void {
+  private readonly groundScratch = { x: 0, z: 0 };
+
+  private syncPredators(simTimeSec: number, dt: number): void {
+    let birdShadowTarget: Predator | null = null;
     for (const p of this.sim.predators) {
-      const mesh = this.predatorMesh(p);
-      const ground = simToWorld(p.x, p.y, this.world);
+      const view = this.predatorView(p);
       switch (p.kind) {
-        case "ghostCrab":
-          // Idle crabs are hidden inside the burrow.
-          mesh.visible = p.state !== "idle";
-          mesh.position.set(ground.x, CRAB_Y_M, ground.z);
-          break;
-        case "frigatebird": {
-          let hover = BIRD_HOVER_M;
-          if (p.state === "windup" && p.tunables.kind === "frigatebird") {
-            const progress = Math.min(1, Math.max(0, 1 - p.cooldown / p.tunables.windupSec));
-            hover = BIRD_HOVER_M - BIRD_WINDUP_DROP_M * progress;
+        case "lavaHeron": {
+          // Aim the lunge at the windup target hatchling.
+          let aim: { x: number; y: number } | null = null;
+          if (p.state === "windup" && p.targetId !== null) {
+            const target = this.sim.hatchlings.find((h) => h.id === p.targetId);
+            if (target) aim = { x: target.x, y: target.y };
           }
-          mesh.position.set(ground.x, hover, ground.z);
+          view.update(p, simTimeSec, dt, aim);
           break;
         }
-        case "lavaHeron":
-          mesh.position.set(ground.x, HERON_Y_M, ground.z);
-          break;
+        default:
+          view.update(p, simTimeSec, dt);
       }
-      this.syncTelegraph(p);
+      if (p.kind === "frigatebird" && p.state === "windup") birdShadowTarget = p;
+      this.syncTelegraph(p, simTimeSec);
+    }
+
+    // Bird shadow blob while diving.
+    if (birdShadowTarget) {
+      const ground = simToWorldInto(birdShadowTarget.x, birdShadowTarget.y, this.world, this.groundScratch);
+      this.birdShadow.position.set(ground.x, 0.03, ground.z);
+      this.birdShadow.visible = true;
+    } else {
+      this.birdShadow.visible = false;
     }
   }
 
-  /** Dive/lunge telegraph: dark translucent ground disc growing over the windup. */
-  private syncTelegraph(p: Predator): void {
+  /** Cartoon bullseye telegraph growing over the windup. */
+  private syncTelegraph(p: Predator, timeSec: number): void {
     const tele = diveTelegraph(p);
     if (!tele) {
-      const entry = this.telegraphEntries.get(p.id);
-      if (entry) entry.mesh.visible = false;
+      this.targetMarkers.clear(p.id);
       return;
     }
-    const entry = this.telegraphEntry(p.id);
-    const ground = simToWorld(tele.x, tele.y, this.world);
-    entry.mesh.position.set(ground.x, 0.03, ground.z);
-    entry.mesh.scale.setScalar(Math.max(0.05, tele.radius * SCALE_M_PER_PX));
-    entry.material.opacity = tele.alpha;
-    entry.mesh.visible = true;
+    const ground = simToWorldInto(tele.x, tele.y, this.world, this.groundScratch);
+    const progress = tele.radius / Math.max(1e-3, this.telegraphMaxRadius(p));
+    this.targetMarkers.set(p.id, ground.x, ground.z, tele.radius * SCALE_M_PER_PX * 1.15, progress, timeSec);
+  }
+
+  /** Max telegraph radius for a windup predator (for progress estimation). */
+  private telegraphMaxRadius(p: Predator): number {
+    if (p.tunables.kind === "frigatebird") return p.tunables.diveRadius;
+    if (p.tunables.kind === "lavaHeron") return p.tunables.reachRadius;
+    return 1;
   }
 
   private syncRings(dt: number): void {
@@ -413,6 +463,54 @@ export class LevelRenderer {
     }
   }
 
+  // --- events / FX ---
+
+  private handleEvents(events: SimEvent[]): void {
+    for (const event of events) {
+      switch (event.type) {
+        case "level-ended":
+          this.hud.showOutcome(event.outcome, event.rate, event.score);
+          break;
+        case "predator-scared": {
+          const predator = this.sim.predators.find((p) => p.id === event.predatorId);
+          if (!predator) break;
+          const ground = simToWorldInto(predator.x, predator.y, this.world, this.groundScratch);
+          this.bursts.spawn({
+            x: ground.x,
+            y: 0.18,
+            z: ground.z,
+            color: FX.scarePuff,
+            upBias: 0.8,
+            radius: 0.55,
+            size: 0.1,
+            lifeSec: 0.5,
+          });
+          const height = predator.kind === "frigatebird" ? 4.8 : predator.kind === "lavaHeron" ? 1.6 : 0.75;
+          this.alerts.spawn(ground.x, height, ground.z);
+          break;
+        }
+        case "hatchling-caught": {
+          const hatchling = this.sim.hatchlings.find((h) => h.id === event.id);
+          if (!hatchling) break;
+          const ground = simToWorldInto(hatchling.x, hatchling.y, this.world, this.groundScratch);
+          this.bursts.spawn({
+            x: ground.x,
+            y: 0.1,
+            z: ground.z,
+            color: FX.dust,
+            upBias: 0.5,
+            radius: 0.35,
+            size: 0.07,
+            lifeSec: 0.4,
+          });
+          break;
+        }
+        default:
+          break;
+      }
+    }
+  }
+
   // --- input ---
 
   private handlePointerDown(event: PointerEvent): void {
@@ -428,17 +526,7 @@ export class LevelRenderer {
     const simPoint = worldToSim(hit.x, hit.z, this.world);
     const result = this.sim.scare(simPoint.x, simPoint.y);
     const feedback = scareFeedback(result);
-
-    // Ground ring at the tapped point.
-    const ring = this.rings[this.nextRingIndex];
-    this.nextRingIndex = (this.nextRingIndex + 1) % this.rings.length;
-    ring.ageSec = 0;
-    ring.active = true;
-    ring.mesh.position.set(hit.x, 0.04, hit.z);
-    ring.mesh.scale.setScalar(this.config.energy.scareRadius * SCALE_M_PER_PX);
-    ring.material.color.setHex(RING_COLOR[feedback.kind]);
-    ring.material.opacity = 0.9;
-    ring.mesh.visible = true;
+    this.spawnRing(hit.x, hit.z, RING_COLOR[feedback.kind], this.config.energy.scareRadius * SCALE_M_PER_PX);
 
     // Floating label in the HTML overlay.
     const localX = event.clientX - this.container.getBoundingClientRect().left;
@@ -446,15 +534,7 @@ export class LevelRenderer {
     this.hud.showFloatingLabel(feedback.label, feedback.kind, localX, localY);
   }
 
-  // --- events / loop / resize ---
-
-  private handleEvents(events: SimEvent[]): void {
-    for (const event of events) {
-      if (event.type === "level-ended") {
-        this.hud.showOutcome(event.outcome, event.rate, event.score);
-      }
-    }
-  }
+  // --- loop / resize ---
 
   private readonly frame = (): void => {
     this.timer.update();
@@ -467,10 +547,13 @@ export class LevelRenderer {
       }
     }
     this.handleEvents(this.sim.drainEvents());
+    const simTime = this.sim.elapsed;
     const timeSec = this.timer.getElapsed();
     for (const layer of this.envLayers) layer.update(timeSec);
-    this.syncHatchlings(dt);
-    this.syncPredators();
+    this.syncHatchlings(dt, simTime);
+    this.syncPredators(simTime, dt);
+    this.bursts.update(dt);
+    this.alerts.update(dt);
     this.syncRings(dt);
     // One defensive-copy read per frame (snapshot discipline from F2).
     const counts = this.sim.counts;
@@ -507,11 +590,20 @@ export class LevelRenderer {
     this.resizeObserver.disconnect();
     this.renderer.domElement.removeEventListener("pointerdown", this.onPointerDown);
     this.hud.dispose();
-    for (const geometry of Object.values(this.geometries)) geometry.dispose();
-    for (const material of Object.values(this.materials)) material.dispose();
     for (const layer of this.envLayers) layer.dispose();
-    for (const entry of this.telegraphEntries.values()) entry.material.dispose();
+    for (const view of this.predatorViews.values()) view.dispose();
+    this.predatorViews.clear();
+    this.hatchlingTracks.clear();
+    this.hatchlingPool.dispose();
+    this.bursts.dispose();
+    this.alerts.dispose();
+    this.targetMarkers.dispose();
+    this.birdShadow.geometry.dispose();
+    (this.birdShadow.material as THREE.Material).dispose();
+    this.telegraphGeometry.dispose();
     for (const ring of this.rings) ring.material.dispose();
+    this.outlinePalette.dispose();
+    this.toon.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }

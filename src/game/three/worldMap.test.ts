@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { LEVEL_1 } from "../sim";
-import { SCALE_M_PER_PX, seaLineZ, simToWorld, worldToSim } from "./worldMap";
+import { SCALE_M_PER_PX, seaLineZ, simToWorld, simToWorldInto, worldToSim } from "./worldMap";
 
 const world = LEVEL_1.world;
 
@@ -31,6 +31,25 @@ describe("simToWorld", () => {
   it("keeps orientation: smaller sim y is closer to the sea (more negative Z)", () => {
     expect(simToWorld(180, 90, world).z).toBeLessThan(simToWorld(180, 110, world).z);
     expect(simToWorld(180, world.seaLineY - 1, world).z).toBeLessThan(seaLineZ(world));
+  });
+});
+
+describe("simToWorldInto", () => {
+  it("matches simToWorld and writes into the provided object", () => {
+    const samples: Array<readonly [number, number]> = [
+      [0, 0],
+      [180, 320],
+      [359, 639],
+      [world.nest.x, world.nest.y],
+    ];
+    const out = { x: 123, z: 456 };
+    for (const [x, y] of samples) {
+      const result = simToWorldInto(x, y, world, out);
+      const expected = simToWorld(x, y, world);
+      expect(result).toBe(out); // mutates and returns the same reference (no allocation)
+      expect(out.x).toBeCloseTo(expected.x, 12);
+      expect(out.z).toBeCloseTo(expected.z, 12);
+    }
   });
 });
 

@@ -45,9 +45,12 @@ does not read as sea.
       shapes per entity, `?seed=` and `?t=` debug params for screenshots.
 - [x] V2 Environment: ocean shader (waves, shoreline foam, moon reflection), sand terrain
       (dunes, ripples), sky with moon + stars, lava rocks, mangroves, nest mound, burrows, fog.
-- [ ] V3 Creatures: low-poly hatchling (shell + scutes, flippers anim), ghost crab (eye
+- [x] V3 Creatures (cartoon style, user 2026-10-09): low-poly hatchling (shell + scutes, flippers anim), ghost crab (eye
       stalks, claws, leg anim), frigatebird (angled wings, red gular pouch, flap/dive),
       lava heron (stand/lunge); state-driven animation, dive telegraph, scare/catch/safe FX.
+      Cartoon look: toon (cel) shading with gradient ramp, inverted-hull outlines, big
+      readable silhouettes (chunky proportions, big eyes), saturated palette, squash &
+      stretch; apply toon materials to props too so the scene is coherent.
 - [ ] V4 Cleanup: remove Phaser + pixelArt/rasterize/textures, update docs; final perf check.
 
 ## Acceptance
@@ -90,6 +93,39 @@ does not read as sea.
   horizon test does not pin `HORIZON_NDC_Y`; `mergeGeometries([])` unguarded for crab-less
   levels; unbagged base rock geometries; per-frame `simToWorld` allocations (pre-existing).
 
+- V3 — route: delegated (gentle-ai-worker, 3 rounds). Commits `6464976` (toon system, creatures,
+  FX, props restyle) and `74b3111` (fixes). Toon materials + inverted-hull outlines; procedural
+  hatchling (instanced, 6 draw calls for 40), ghost crab, frigatebird, lava heron; pure TDD
+  pose functions, `fx/curves`, `simToWorldInto`, `mirrorGeometryX`, `hatchlingVisualTracker`.
+  Round 2 fixed a black slash on every hatchling (mirrored instanced flipper: InstancedMesh
+  does not flip frontFace for negative instance scale). Independent gentle-ai-verify on
+  `6464976` found 2 BLOCKERS: `npm run check` failed (TS2352 in parts.ts — parent had read a
+  truncated tail and missed it) and the safe splash re-fired every ~1.2 s; both fixed in
+  `74b3111`, plus geometry leaks and tautological tests. Checks (parent, full output):
+  248/248 tests, check 0/0/0, build pass, no console errors.
+  RDD: native START on the V3 range `edba0c1..74b3111` created `review-8f86bc4cc11f5f6d`
+  (medium, 3203 lines); reviewer capture not run yet (V2 reviewer timed out twice at 1883 lines).
+  Visual check (headless 390x844, t=12): turtles, crabs and bird readable; STILL OPEN:
+  driftwood still reads as a crossed X, sea glitter washes out most of the sea, heron rock
+  reads as a dark-blue blob, nest is a large flat disc, frigatebird small.
+- V3 polish (user chose the recommended polish round) — route: delegated (gentle-ai-worker).
+  Commit `f4da4f6`. Root cause of the white sea: grazing-angle Fresnel specular under the
+  bright moon; fixed with MeshPhysicalMaterial `specularIntensity: 0` + emissive sparkle
+  dashes on a narrow moon path. Driftwood: two deterministic, separated logs (≥ 7 m apart).
+  Heron rock: faceted grey-brown boulder via pure `colorFacetsByNormal` (TDD), heron 1.5x.
+  Nest: 0.45 m scooped rim with eggshells. Frigatebird 2.3x, two-tone, rim + red pouch.
+  Checks (parent, full output): 250/250 tests, check `Result (82 files): 0 errors, 0
+  warnings, 0 hints`, build pass, 0 console errors. Frame (t=12) reviewed by parent: all five
+  issues resolved.
+  RDD: native review `review-8f86bc4cc11f5f6d` on V3 range `edba0c1..74b3111` (3203 lines,
+  medium, reliability) APPROVED; acknowledgement returned `native-approved-acknowledgement-
+  not-current` because HEAD moved to the polish commit, so the receipt was not burned (no
+  authority consumed). Native START on the polish commit `085eb08..f4da4f6`:
+  `consent-binding-expired`, no lineage → independent gentle-ai-verify PASS, no blockers.
+  Advisories (non-blocking): splash-on-first-sight (LevelRenderer.ts:335-345), hatchling pool
+  exhaustion silently skips, telegraph progress denominator; facet helper non-indexed branch
+  untested; redundant heron geometry dispose; stale ocean header comment.
+
 ## Next step
 
-User visual feedback on the V2 frame, then V3 (creature models replace placeholders).
+V4: remove Phaser + pixel-art pipeline, perf check; then PR slices for V1–V4.

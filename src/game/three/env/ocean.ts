@@ -30,18 +30,22 @@ export function createOcean(options: OceanOptions): EnvLayer {
   const uniforms = {
     uTime: { value: 0 },
     uSeaLineZ: { value: options.seaLineZ },
-    uColorDeep: { value: new THREE.Color(0x0a1c33) }, // deep navy offshore
-    uColorShallow: { value: new THREE.Color(0x1c5a60) }, // turquoise near the shore
+    uColorDeep: { value: new THREE.Color(0x0e3148) }, // deep teal-blue offshore
+    uColorShallow: { value: new THREE.Color(0x146068) }, // teal near the shore
     uColorFoam: { value: new THREE.Color(0xdfe8ee) },
     uMoonDirW: { value: options.moonDir.clone().normalize() },
   };
 
   const material = bag.add(
-    new THREE.MeshStandardMaterial({
+    new THREE.MeshPhysicalMaterial({
       color: 0xffffff, // fully driven per-fragment below
-      roughness: 0.3,
+      roughness: 0.6,
       metalness: 0,
       transparent: true,
+      // No PBR specular at all: at grazing angles Fresnel -> 1 and the moon
+      // directional light whited out the whole far sea. The stylised
+      // emissive dashes below are the only moon reflection.
+      specularIntensity: 0,
     }),
   );
   material.customProgramCacheKey = () => "ocean-night-v2";
@@ -104,13 +108,14 @@ export function createOcean(options: OceanOptions): EnvLayer {
           float oceanFoam = foamStrength(vWorldPos.z, vWorldPos.x, uTime, uSeaLineZ);
           // Depth-based color: turquoise at the shore, deep navy offshore.
           diffuseColor.rgb = mix(uColorShallow, uColorDeep, smoothstep(0.06, 0.65, oceanShoreT));
-          // Moonlit sky reflection toward the horizon (fresnel).
+          // Moonlit sky reflection toward the horizon (fresnel), kept dark so
+          // the horizon band does not wash the sea out.
           vec3 oceanV = normalize(cameraPosition - vWorldPos);
           float oceanFres = pow(1.0 - max(dot(normalize(vWaveNormalW), oceanV), 0.0), 3.0);
-          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.16, 0.22, 0.33), oceanFres * 0.5);
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.12, 0.17, 0.27), oceanFres * 0.45);
           // Foam: swash edge + trailing lines + gentle crest foam.
           float oceanCrest = smoothstep(0.09, 0.14, vWaveH);
-          oceanFoam = clamp(oceanFoam + oceanCrest * 0.3, 0.0, 1.0);
+          oceanFoam = clamp(oceanFoam + oceanCrest * 0.15, 0.0, 1.0);
           diffuseColor.rgb = mix(diffuseColor.rgb, uColorFoam, oceanFoam);
           // Feathery alpha fade across the moving swash edge: the film thins
           // out with lateral noise instead of ending on a straight ruler line.
@@ -123,7 +128,9 @@ export function createOcean(options: OceanOptions): EnvLayer {
           "#include <roughnessmap_fragment>",
           /* glsl */ `
           #include <roughnessmap_fragment>
-          roughnessFactor = mix(0.55, 0.16, oceanShoreT);
+          // High roughness everywhere: the stylised glitter below carries the
+          // moon path; broad GGX specular would wash the whole sea out.
+          roughnessFactor = mix(0.62, 0.45, oceanShoreT);
           roughnessFactor = mix(roughnessFactor, 0.9, oceanFoam);
           `,
         )
@@ -132,17 +139,17 @@ export function createOcean(options: OceanOptions): EnvLayer {
           /* glsl */ `
           #include <emissivemap_fragment>
           {
-            // Moon glitter path: specular alignment plus a narrow streak under
-            // the moon's azimuth (x ~ 0), sparkling with surface noise.
+            // Moon path: a narrow streak under the moon's azimuth (x ~ 0)
+            // made of stylised short horizontal dashes that flicker, not a
+            // broad bloom.
             vec3 oceanR = reflect(-oceanV, normalize(vWaveNormalW));
             // The real moon sits ~2.5 deg above the horizon; the glitter uses
-            // the typical wave-facet reflection elevation so the streak shows.
-            float oceanAlign = max(dot(oceanR, normalize(vec3(0.0, 0.23, -0.973))), 0.0);
-            float oceanStreak = exp(-pow(vWorldPos.x / 4.0, 2.0));
-            float oceanSparkle = 0.45 + 1.7 * pow(vnoise(vWorldPos.xz * 2.6 + vec2(0.0, uTime * 1.7)), 2.0);
-            float oceanGlint =
-              pow(oceanAlign, 60.0) * (0.25 + 1.8 * oceanStreak) * oceanSparkle +
-              pow(oceanAlign, 18.0) * 0.15 * oceanStreak;
+            // the typical wave-facet reflection elevation so the path shows.
+            float oceanAlign = pow(max(dot(oceanR, normalize(vec3(0.0, 0.23, -0.973))), 0.0), 24.0);
+            float oceanStreak = exp(-pow(vWorldPos.x / 8.5, 2.0));
+            float oceanCells = vnoise(vec2(vWorldPos.x * 1.6, vWorldPos.z * 0.5 - uTime * 0.9));
+            float oceanDash = step(0.8, oceanCells);
+            float oceanGlint = oceanAlign * oceanDash * oceanStreak * 1.1;
             totalEmissiveRadiance += vec3(0.85, 0.9, 1.0) * oceanGlint;
             // Foam reads bright at night (moonlit sea froth glows faintly).
             totalEmissiveRadiance += vec3(0.55, 0.6, 0.62) * oceanFoam * 0.45;
