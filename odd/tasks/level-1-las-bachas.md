@@ -39,7 +39,13 @@ population, too many starves the predators.
 - [x] T2 Simulation core (TDD): hatchling crawl, predator behaviors, capture, energy, ecosystem meter, win/lose evaluation.
 - [x] T3 Phaser level scene: beach layout, procedural pixel sprites, sim ↔ render binding.
 - [x] T4 Input: unified pointer/touch scare, energy HUD, responsive scaling.
-- [ ] T5 Menu, intro, results screens (win/lose by band, score).
+- [x] T5 Menu, intro, results screens (win/lose by band, score). HTML/CSS screens over the
+      Three.js canvas: title menu (Jugar, Cómo se juega), short intro about the green turtle,
+      the predators and the balance band, results screen with outcome explanation, rate vs band,
+      score, best score (localStorage), Reintentar / Menú. Pure screen-flow state machine and
+      results copy model with strict TDD; the scene renders behind the menu; restart
+      recreates the Simulation without leaking GPU resources. Accessible (buttons, focus,
+      Esc/Enter, prefers-reduced-motion).
 - [ ] T6 Free assets + audio integration with CREDITS.md.
 - [x] F1 Fix R3-001: frigatebird/heron scare test mutates a snapshot copy (no-op); drive real state.
 - [x] F2 Perf: LevelScene reads one hatchlings/predators snapshot per frame instead of repeated clones.
@@ -97,6 +103,19 @@ population, too many starves the predators.
   still reach `sim.scare` (LevelScene.ts:84-86); inconsistent-counts status coverage
   (hud.test.ts:101-104); no guard for `scareCost` 0 (hud.ts:25-26).
   Not verified: live browser / touch device.
+- T5 — route: delegated (gentle-ai-worker, 2 rounds). Commits `f15d8b1` (screens) + `d9cf753`
+  (verification fixes). Pure `screens/{flow,results,storage,bestScore}` + `settleRun` +
+  `readGameParams` with strict TDD; DOM screens (menu, intro "Cómo se juega", results with band
+  bar, score, new-best badge); `GameController` owns flow and renderer lifecycle; attract mode =
+  live sim with input disabled. Independent gentle-ai-verify on `f15d8b1` found 1 BLOCKER (the
+  new-best badge never showed: best was updated before building the model) + 3 WARNINGS
+  (re-entrant dispose inside tick, WebGL contexts never force-lost, aria-modal without focus
+  trap); all fixed in `d9cf753`. Probe `?perf=1&restarts=20`: liveContexts stays 1, geometries
+  26 / textures 5 stable, no "Too many active WebGL contexts". Checks (parent, full output):
+  273/273 tests, check `Result (88 files): 0 errors, 0 warnings, 0 hints`, build pass. Screens
+  reviewed by parent at 390 px (menu over live scene; balanced results with record badge).
+  RDD: native START `consent-binding-expired`, no lineage → independent verify (above).
+  Not verified: real touch device; keyboard focus trap only by static analysis + worker check.
 
 ## Delivery slices (stacked-to-main)
 
@@ -118,8 +137,4 @@ population, too many starves the predators.
 
 ## Next step
 
-T4 merged (PR #4). Playtest feedback ("looks like Atari") spawned the 3D cartoon overhaul,
-tracked in `odd/tasks/level-1-3d-visuals.md` and delivered as PRs #5–#8 (`main` `fc6a900`):
-Three.js replaces Phaser. Remaining here: T5 (menu, intro, results screens, now as HTML over
-the Three.js canvas) on branch `feat/level-1-screens`, then T6. Energy tuning is still pending
-a playtest on the new renderer.
+T5 done on `feat/level-1-screens` (commits `f15d8b1` + fixes). PR to `main`, then T6.
