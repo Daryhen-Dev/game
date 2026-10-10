@@ -45,9 +45,12 @@ does not read as sea.
       shapes per entity, `?seed=` and `?t=` debug params for screenshots.
 - [x] V2 Environment: ocean shader (waves, shoreline foam, moon reflection), sand terrain
       (dunes, ripples), sky with moon + stars, lava rocks, mangroves, nest mound, burrows, fog.
-- [ ] V3 Creatures: low-poly hatchling (shell + scutes, flippers anim), ghost crab (eye
+- [ ] V3 Creatures (cartoon style, user 2026-10-09): low-poly hatchling (shell + scutes, flippers anim), ghost crab (eye
       stalks, claws, leg anim), frigatebird (angled wings, red gular pouch, flap/dive),
       lava heron (stand/lunge); state-driven animation, dive telegraph, scare/catch/safe FX.
+      Cartoon look: toon (cel) shading with gradient ramp, inverted-hull outlines, big
+      readable silhouettes (chunky proportions, big eyes), saturated palette, squash &
+      stretch; apply toon materials to props too so the scene is coherent.
 - [ ] V4 Cleanup: remove Phaser + pixelArt/rasterize/textures, update docs; final perf check.
 
 ## Acceptance
@@ -90,6 +93,22 @@ does not read as sea.
   horizon test does not pin `HORIZON_NDC_Y`; `mergeGeometries([])` unguarded for crab-less
   levels; unbagged base rock geometries; per-frame `simToWorld` allocations (pre-existing).
 
+- V3 — route: delegated (gentle-ai-worker, 3 rounds). Commits `6464976` (toon system, creatures,
+  FX, props restyle) and `74b3111` (fixes). Toon materials + inverted-hull outlines; procedural
+  hatchling (instanced, 6 draw calls for 40), ghost crab, frigatebird, lava heron; pure TDD
+  pose functions, `fx/curves`, `simToWorldInto`, `mirrorGeometryX`, `hatchlingVisualTracker`.
+  Round 2 fixed a black slash on every hatchling (mirrored instanced flipper: InstancedMesh
+  does not flip frontFace for negative instance scale). Independent gentle-ai-verify on
+  `6464976` found 2 BLOCKERS: `npm run check` failed (TS2352 in parts.ts — parent had read a
+  truncated tail and missed it) and the safe splash re-fired every ~1.2 s; both fixed in
+  `74b3111`, plus geometry leaks and tautological tests. Checks (parent, full output):
+  248/248 tests, check 0/0/0, build pass, no console errors.
+  RDD: native START on the V3 range `edba0c1..74b3111` created `review-8f86bc4cc11f5f6d`
+  (medium, 3203 lines); reviewer capture not run yet (V2 reviewer timed out twice at 1883 lines).
+  Visual check (headless 390x844, t=12): turtles, crabs and bird readable; STILL OPEN:
+  driftwood still reads as a crossed X, sea glitter washes out most of the sea, heron rock
+  reads as a dark-blue blob, nest is a large flat disc, frigatebird small.
+
 ## Next step
 
-User visual feedback on the V2 frame, then V3 (creature models replace placeholders).
+User decision: polish round for the open V3 visuals, or accept and continue (review, V4).
