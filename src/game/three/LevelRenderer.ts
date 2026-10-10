@@ -108,7 +108,11 @@ interface HatchlingTrack {
 }
 
 export class LevelRenderer {
+  /** Live WebGL contexts across all renderer instances (leak probe metric). */
+  static liveContexts = 0;
+
   private readonly container: HTMLElement;
+  private disposed = false;
   private readonly config: LevelConfig;
   private readonly world: WorldConfig;
   private readonly sim: Simulation;
@@ -175,6 +179,7 @@ export class LevelRenderer {
     this.perfEnabled = debugParams.get("perf") === "1";
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    LevelRenderer.liveContexts++;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
     // r186: PCFShadowMap performs the soft filtering (PCFSoftShadowMap is deprecated).
@@ -562,6 +567,7 @@ export class LevelRenderer {
   // --- loop / resize ---
 
   private readonly frame = (): void => {
+    if (this.disposed) return;
     if (!this.perfEnabled) {
       this.tick();
       return;
@@ -584,6 +590,7 @@ export class LevelRenderer {
   };
 
   private tick(): void {
+    if (this.disposed) return;
     this.timer.update();
     const dt = Math.min(this.timer.getDelta(), MAX_FRAME_SEC);
     if (!this.sim.finished) {
@@ -594,6 +601,9 @@ export class LevelRenderer {
       }
     }
     this.handleEvents(this.sim.drainEvents());
+    // handleEvents can reach the shell, which may dispose this renderer
+    // (attract-mode respawn); stop before touching disposed GPU resources.
+    if (this.disposed) return;
     const simTime = this.sim.elapsed;
     const timeSec = this.timer.getElapsed();
     for (const layer of this.envLayers) layer.update(timeSec);
@@ -636,17 +646,26 @@ export class LevelRenderer {
   }
 
   /** GPU resource counters for leak checks (?perf=1 debug and the shell). */
-  resourceCounts(): { geometries: number; textures: number; programs: number; drawCalls: number } {
+  resourceCounts(): {
+    geometries: number;
+    textures: number;
+    programs: number;
+    drawCalls: number;
+    liveContexts: number;
+  } {
     const memory = this.renderer.info.memory;
     return {
       geometries: memory.geometries,
       textures: memory.textures,
       programs: this.renderer.info.programs?.length ?? 0,
       drawCalls: this.renderer.info.render.calls,
+      liveContexts: LevelRenderer.liveContexts,
     };
   }
 
   dispose(): void {
+    if (this.disposed) return; // idempotent
+    this.disposed = true;
     this.renderer.setAnimationLoop(null);
     this.timer.disconnect();
     this.timer.dispose();
@@ -668,6 +687,10 @@ export class LevelRenderer {
     this.outlinePalette.dispose();
     this.toon.dispose();
     this.renderer.dispose();
+    // Release the WebGL context NOW: browsers cap live contexts (~16), so a
+    // restart flow that only removes the canvas would eventually fail.
+    this.renderer.forceContextLoss();
     this.renderer.domElement.remove();
+    LevelRenderer.liveContexts = Math.max(0, LevelRenderer.liveContexts - 1);
   }
 }

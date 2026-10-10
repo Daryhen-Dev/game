@@ -15,7 +15,7 @@
 import { LEVEL_1, createRng } from "../sim";
 import { LevelRenderer, type LevelEndedResult } from "../three/LevelRenderer";
 import { next, type ScreenAction, type ScreenState } from "./flow";
-import { resultsModel, type SimOutcome } from "./results";
+import { resultsModel, settleRun, type ResultsModel, type SimOutcome } from "./results";
 import { loadBest, saveBest } from "./bestScore";
 import { readFlag, writeFlag, type StorageLike } from "./storage";
 import { Screens } from "./screens";
@@ -67,8 +67,12 @@ export function readGameParams(search: string): GameParams {
   }
   if (options.screen === "results") {
     const outcome = params.get("outcome");
-    const rate = Number(params.get("rate"));
-    const score = Number(params.get("score"));
+    // Number(null) === 0, so absent params must be detected before parsing
+    // (otherwise the 0.6 / 850 defaults would be dead code).
+    const rawRate = params.get("rate");
+    const rawScore = params.get("score");
+    const rate = rawRate !== null ? Number(rawRate) : NaN;
+    const score = rawScore !== null ? Number(rawScore) : NaN;
     options.fakeResults = {
       outcome:
         outcome === "turtle-collapse" || outcome === "predators-starve" ? outcome : "balanced",
@@ -79,7 +83,7 @@ export function readGameParams(search: string): GameParams {
 
   options.perf = params.get("perf") === "1";
   const rawRestarts = Number(params.get("restarts"));
-  if (Number.isSafeInteger(rawRestarts) && rawRestarts > 0) options.restarts = Math.min(rawRestarts, 8);
+  if (Number.isSafeInteger(rawRestarts) && rawRestarts > 0) options.restarts = Math.min(rawRestarts, 20);
   return options;
 }
 
@@ -239,27 +243,39 @@ export class GameController {
   private handleLevelEnded(result: LevelEndedResult): void {
     if (this.disposed) return;
     if (this.state === "playing") {
-      // Best score counts only balanced runs (see results.ts).
-      if (result.outcome === "balanced" && (this.best === null || result.score > this.best)) {
-        this.best = result.score;
+      // Best-score decision in ONE place: settleRun builds the results model
+      // against the PREVIOUS best (so the record run shows the badge), and
+      // only then is the new best kept/persisted.
+      const settled = settleRun(this.best, result, LEVEL_1.healthyBand);
+      this.best = settled.nextBest;
+      if (settled.persist && settled.nextBest !== null) {
         const storage = browserStorage();
-        if (storage) saveBest(storage, this.best);
+        if (storage) saveBest(storage, settled.nextBest);
       }
       this.transition({ type: "level-ended" });
-      this.showResultsScreen(result);
+      this.showResultsModel(settled.model);
       this.renderer?.setHudVisible(true);
     } else {
-      // Attract mode: the ambient run finished — respawn a fresh scene.
-      this.startAttract();
-      this.renderer?.setHudVisible(false);
+      // Attract mode: the ambient run finished — respawn a fresh scene, but
+      // DEFERRED out of the render callback stack so the old renderer is
+      // never disposed while its own tick() is still running.
+      queueMicrotask(() => {
+        if (this.disposed) return;
+        this.startAttract();
+        this.renderer?.setHudVisible(false);
+      });
     }
   }
 
   private showResultsScreen(result: FakeResults): void {
-    this.screens.showResults(
+    // Debug fake results: build the model directly (no best-score settling).
+    this.showResultsModel(
       resultsModel(result.outcome, result.rate, result.score, LEVEL_1.healthyBand, this.best),
-      LEVEL_1.healthyBand,
     );
+  }
+
+  private showResultsModel(model: ResultsModel): void {
+    this.screens.showResults(model, LEVEL_1.healthyBand);
   }
 
   private markIntroSeen(): void {
@@ -286,7 +302,8 @@ export class GameController {
       if (counts) {
         const line =
           `[restart ${this.restartProbeCount}] geometries=${counts.geometries} ` +
-          `textures=${counts.textures} programs=${counts.programs} drawCalls=${counts.drawCalls}`;
+          `textures=${counts.textures} programs=${counts.programs} drawCalls=${counts.drawCalls} ` +
+          `liveContexts=${counts.liveContexts}`;
         console.log(`[restart-probe] ${line}`);
         const row = document.createElement("div");
         row.textContent = line;

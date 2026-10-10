@@ -62,3 +62,39 @@ export function resultsModel(
     verdictTone: outcome === "balanced" ? "good" : "bad",
   };
 }
+
+/** A finished run as reported by the renderer/sim. */
+export interface RunResultLike {
+  outcome: SimOutcome;
+  rate: number;
+  score: number;
+}
+
+/** A settled run: the screen model plus the best-score bookkeeping. */
+export interface SettledRun {
+  model: ResultsModel;
+  /** Best score after this run (the value the shell keeps in memory). */
+  nextBest: number | null;
+  /** True when `nextBest` must be persisted to storage. */
+  persist: boolean;
+}
+
+/**
+ * ONE source of truth for settling a finished run: the results model is
+ * built against the PREVIOUS best (so the record-setting run itself shows
+ * the "new best" badge), and the new best is persisted only when the model
+ * says it is one. The shell must not update its stored best before calling
+ * this — that ordering bug made the badge unreachable in real gameplay.
+ */
+export function settleRun(
+  prevBest: number | null,
+  result: RunResultLike,
+  band: BandLike,
+): SettledRun {
+  const model = resultsModel(result.outcome, result.rate, result.score, band, prevBest);
+  return {
+    model,
+    nextBest: model.isNewBest ? result.score : prevBest,
+    persist: model.isNewBest,
+  };
+}

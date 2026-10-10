@@ -62,7 +62,7 @@ describe("resultsModel", () => {
     it("only balanced runs can set a best: losing runs never do, even with no stored best", () => {
       for (const outcome of outcomes) {
         const model = resultsModel(outcome, 0.2, 0, BAND, null);
-        expect(model.isNewBest, outcome).toBe(outcome === "balanced" ? false : false);
+        expect(model.isNewBest, outcome).toBe(false);
       }
     });
 

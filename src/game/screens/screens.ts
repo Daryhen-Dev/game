@@ -222,9 +222,35 @@ export class Screens {
   private readonly root: HTMLDivElement;
   /** Screen currently shown (drives Esc handling). */
   private current: ScreenState | null = null;
+  /** Container siblings made inert while a dialog is open (canvas + HUD). */
+  private inertTargets: Element[] = [];
   private readonly onKeyDown = (event: KeyboardEvent): void => {
     if (event.key !== "Escape") return;
     if (this.current === "intro" || this.current === "results") this.callbacks.onMenu();
+  };
+
+  /**
+   * Focus trap: with a modal dialog open, Tab and Shift+Tab cycle inside it
+   * (the dialog declares aria-modal="true", so background UI must not be
+   * reachable). Focus wraps across the dialog's buttons.
+   */
+  private readonly onTrapKey = (event: KeyboardEvent): void => {
+    if (event.key !== "Tab") return;
+    const focusables = Array.from(
+      this.root.querySelectorAll<HTMLButtonElement>("button:not([disabled])"),
+    );
+    if (focusables.length === 0) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    const active = document.activeElement;
+    const inside = active !== null && this.root.contains(active);
+    if (event.shiftKey && (!inside || active === first)) {
+      event.preventDefault();
+      last.focus({ preventScroll: true });
+    } else if (!event.shiftKey && (!inside || active === last)) {
+      event.preventDefault();
+      first.focus({ preventScroll: true });
+    }
   };
 
   constructor(
@@ -321,20 +347,50 @@ export class Screens {
   /** Remove the current screen (game canvas takes over). */
   hide(): void {
     this.current = null;
+    this.releaseInert();
     this.root.replaceChildren();
   }
 
   dispose(): void {
+    this.releaseInert();
     document.removeEventListener("keydown", this.onKeyDown);
     this.root.remove();
   }
 
   // --- internals ---
 
+  /**
+   * Make the game canvas container and HUD uninteractive/unreachable while
+   * the modal dialog is open (inert, with aria-hidden as the fallback), and
+   * install the focus-trap key handler.
+   */
+  private applyInert(): void {
+    const parent = this.root.parentElement;
+    if (parent) {
+      this.inertTargets = Array.from(parent.children).filter((el) => el !== this.root);
+      for (const el of this.inertTargets) {
+        if (el instanceof HTMLElement) el.inert = true;
+        else el.setAttribute("aria-hidden", "true");
+      }
+    }
+    document.addEventListener("keydown", this.onTrapKey);
+  }
+
+  private releaseInert(): void {
+    for (const el of this.inertTargets) {
+      if (el instanceof HTMLElement) el.inert = false;
+      else el.removeAttribute("aria-hidden");
+    }
+    this.inertTargets = [];
+    document.removeEventListener("keydown", this.onTrapKey);
+  }
+
   /** Clear the root, open a dialog shell, and return its panel. */
   private openScreen(state: ScreenState, titleId: string, titleText: string): HTMLDivElement {
     this.current = state;
+    this.releaseInert();
     this.root.replaceChildren();
+    this.applyInert();
 
     const screen = document.createElement("div");
     screen.className = "screen";
