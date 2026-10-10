@@ -17,6 +17,10 @@ export interface HudCounts {
 const STYLE_ID = "hud3d-styles";
 
 const CSS = `
+.hud3d, .hud3d * {
+  box-sizing: border-box;
+  min-width: 0;
+}
 .hud3d {
   position: absolute;
   inset: 0;
@@ -24,7 +28,9 @@ const CSS = `
   flex-direction: column;
   align-items: stretch;
   gap: 5px;
-  padding: calc(10px + env(safe-area-inset-top)) 12px 0;
+  padding: calc(10px + env(safe-area-inset-top, 0px))
+    calc(12px + env(safe-area-inset-right, 0px)) 0
+    calc(12px + env(safe-area-inset-left, 0px));
   pointer-events: none;
   font-family: system-ui, sans-serif;
   color: #e8e6d8;
@@ -47,7 +53,7 @@ const CSS = `
   background: #222a3f;
   overflow: hidden;
 }
-.hud3d-energy { flex: 0 0 46%; }
+.hud3d-energy { flex: 0 1 46%; }
 .hud3d-energy-fill {
   height: 100%;
   width: 100%;
@@ -61,7 +67,12 @@ const CSS = `
   width: 1px;
   background: rgba(11, 16, 32, 0.8);
 }
-.hud3d-meter { overflow: visible; background: #b7a479; }
+.hud3d-meter {
+  width: 100%;
+  max-width: 100%;
+  overflow: visible;
+  background: #b7a479;
+}
 .hud3d-meter-segment { position: absolute; top: 0; bottom: 0; left: 0; }
 .hud3d-meter-safe { background: #3fae9c; }
 .hud3d-meter-caught { background: #8a2f2f; }
@@ -74,6 +85,17 @@ const CSS = `
   background: #f2ead0;
 }
 .hud3d-status { font-size: 12px; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9); }
+.hud3d-label-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+.hud3d-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  box-shadow: inset 0 0 130px rgba(4, 8, 18, 0.55);
+}
 .hud3d-outcome {
   display: none;
   margin: auto;
@@ -146,6 +168,7 @@ export class HudOverlay {
   private readonly outcomeTitle: HTMLParagraphElement;
   private readonly outcomeBody: HTMLParagraphElement;
   private readonly labelLayer: HTMLDivElement;
+  private readonly vignette: HTMLDivElement;
   private readonly labelTimeouts = new Set<ReturnType<typeof setTimeout>>();
 
   private readonly cachedEnergyFill = cached("100.00%", (w) => {
@@ -218,15 +241,18 @@ export class HudOverlay {
     this.outcomePanel.appendChild(this.outcomeTitle);
     this.outcomePanel.appendChild(this.outcomeBody);
 
-    // Floating scare-feedback labels.
+    // Floating scare-feedback labels + soft vignette (night mood).
     this.labelLayer = document.createElement("div");
     this.labelLayer.className = "hud3d-label-layer";
+    this.vignette = document.createElement("div");
+    this.vignette.className = "hud3d-vignette";
 
     this.root.appendChild(energyRow);
     this.root.appendChild(meter);
     this.root.appendChild(this.statusText);
     this.root.appendChild(this.outcomePanel);
     this.root.appendChild(this.labelLayer);
+    this.root.appendChild(this.vignette);
     container.appendChild(this.root);
   }
 

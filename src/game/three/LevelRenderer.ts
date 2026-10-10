@@ -6,8 +6,8 @@
  * entity id, shared geometries/materials, no per-frame allocation), handles
  * ground-raycast scare input and feeds the HTML HUD overlay.
  *
- * V1 foundation: placeholder shapes only. Environment art is V2, creature
- * models are V3.
+ * V1 foundation + V2 environment: night beach scene (sky/ocean/sand/props
+ * live in `./env/*`), placeholder shapes for creatures until V3.
  */
 import * as THREE from "three";
 import {
@@ -26,6 +26,11 @@ import {
 } from "../view/hud";
 import { diveTelegraph } from "../view/presentation";
 import { cameraRig } from "./camera";
+import { type EnvLayer } from "./env/env";
+import { createOcean } from "./env/ocean";
+import { createProps } from "./env/props";
+import { createSand } from "./env/sand";
+import { createSky, HORIZON_COLOR } from "./env/sky";
 import { HudOverlay } from "./hudOverlay";
 import { rayToGround } from "./picking";
 import { SCALE_M_PER_PX, seaLineZ, simToWorld, worldToSim } from "./worldMap";
@@ -44,23 +49,18 @@ const HERON_Y_M = 0.65;
 /** Safe hatchlings sink into the sand/water at this speed. */
 const SINK_SPEED_M = 0.25;
 const SINK_HIDDEN_Y_M = -0.3;
-/** Sea plane extent beyond the sea line (meters, toward the horizon). */
-const SEA_LENGTH_M = 60;
-/** Beach margin behind the bottom sim edge (meters). */
-const BEACH_MARGIN_M = 6;
 /** Scare ring animation lifetime (seconds). */
 const RING_LIFE_SEC = 0.28;
 const RING_POOL_SIZE = 4;
 
 const COLORS = {
-  sky: 0x0b1020,
-  sand: 0xb7a479,
-  sea: 0x12335a,
+  horizon: HORIZON_COLOR,
   hatchling: 0x3fae5c,
   crab: 0xd8cbb0,
-  bird: 0x1c1c26,
-  heron: 0x6e7480,
-  telegraph: 0x10141f,
+  bird: 0x6b5b4a,
+  birdThroat: 0xc4362c,
+  heron: 0x828a96,
+  telegraph: 0x4a2018,
   ringHit: 0x8fd07a,
   ringMiss: 0x9aa0a8,
   ringNoEnergy: 0xff6b5e,
@@ -101,6 +101,7 @@ export class LevelRenderer {
   private readonly scene: THREE.Scene;
   private readonly camera: THREE.PerspectiveCamera;
   private readonly hud: HudOverlay;
+  private readonly envLayers: EnvLayer[];
   private readonly resizeObserver: ResizeObserver;
   private readonly timer = new THREE.Timer();
   private accumulator = 0;
@@ -110,6 +111,7 @@ export class LevelRenderer {
     hatchling: new THREE.SphereGeometry(0.2, 10, 8),
     crab: new THREE.BoxGeometry(0.42, 0.16, 0.3),
     bird: new THREE.ConeGeometry(0.4, 1.1, 4),
+    birdThroat: new THREE.SphereGeometry(0.12, 8, 6),
     heron: new THREE.CylinderGeometry(0.12, 0.18, 1.3, 8),
     telegraph: new THREE.CircleGeometry(1, 24),
     ring: new THREE.RingGeometry(0.86, 1, 32),
@@ -118,8 +120,13 @@ export class LevelRenderer {
   private readonly materials = {
     hatchling: new THREE.MeshStandardMaterial({ color: COLORS.hatchling, roughness: 0.8 }),
     crab: new THREE.MeshStandardMaterial({ color: COLORS.crab, roughness: 0.9 }),
-    bird: new THREE.MeshStandardMaterial({ color: COLORS.bird, roughness: 0.6 }),
-    heron: new THREE.MeshStandardMaterial({ color: COLORS.heron, roughness: 0.85 }),
+    bird: new THREE.MeshStandardMaterial({ color: COLORS.bird, roughness: 0.7, emissive: 0x352b20 }),
+    birdThroat: new THREE.MeshStandardMaterial({
+      color: COLORS.birdThroat,
+      roughness: 0.6,
+      emissive: 0x501408,
+    }),
+    heron: new THREE.MeshStandardMaterial({ color: COLORS.heron, roughness: 0.85, emissive: 0x12161c }),
   } as const;
 
   // Entity pools keyed by sim ids.
@@ -128,14 +135,6 @@ export class LevelRenderer {
   private readonly telegraphEntries = new Map<string, TelegraphEntry>();
   private readonly rings: RingEntry[] = [];
   private nextRingIndex = 0;
-
-  /** Everything needing explicit GPU disposal on teardown. */
-  private readonly disposables: Array<{ dispose(): void }> = [];
-
-  private track<T extends { dispose(): void }>(resource: T): T {
-    this.disposables.push(resource);
-    return resource;
-  }
 
   private readonly raycaster = new THREE.Raycaster();
   private readonly pointerNdc = new THREE.Vector2();
@@ -147,25 +146,36 @@ export class LevelRenderer {
     this.world = options.config.world;
     this.sim = new Simulation(options.config, options.rng);
 
+    // Debug viewport pin (?w=<px>&h=<px>): headless Chrome clamps the window
+    // to 500px wide, so phone-sized screenshots crop a 500px layout. Pinning
+    // the container gives a true 390px portrait layout for screenshots.
+    const debugParams = new URLSearchParams(window.location.search);
+    const debugW = Number(debugParams.get("w"));
+    const debugH = Number(debugParams.get("h"));
+    if (Number.isFinite(debugW) && debugW > 0) this.container.style.width = `${debugW}px`;
+    if (Number.isFinite(debugH) && debugH > 0) this.container.style.height = `${debugH}px`;
+
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
     // r186: PCFShadowMap performs the soft filtering (PCFSoftShadowMap is deprecated).
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.1;
+    this.renderer.toneMappingExposure = 1.6;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.domElement.addEventListener("pointerdown", this.onPointerDown);
     container.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(COLORS.sky);
-    this.scene.fog = new THREE.Fog(COLORS.sky, 45, 120);
+    // Fog matched to the sky horizon so the sea blends into the sky at distance.
+    this.scene.background = new THREE.Color(COLORS.horizon);
+    this.scene.fog = new THREE.Fog(COLORS.horizon, 60, 260);
 
-    this.camera = new THREE.PerspectiveCamera(60, 1, 0.1, 200);
+    this.camera = new THREE.PerspectiveCamera(60, 1, 0.1, 600);
 
     this.buildLights();
-    this.buildGround();
+    this.envLayers = this.buildEnvironment();
+    for (const layer of this.envLayers) this.scene.add(layer.group);
     this.buildRings();
 
     this.hud = new HudOverlay(container);
@@ -189,45 +199,54 @@ export class LevelRenderer {
   // --- static scene (built once) ---
 
   private buildLights(): void {
-    const hemi = new THREE.HemisphereLight(0x3a4a6a, 0x2a2418, 0.55);
+    // Cool moonlit sky over warm dark sand.
+    const hemi = new THREE.HemisphereLight(0x33486b, 0x52452e, 2.2);
     this.scene.add(hemi);
 
-    // Moon over the sea: the single shadow-casting light.
-    const moon = new THREE.DirectionalLight(0xcfd8ea, 1.15);
-    moon.position.set(8, 24, -18);
+    // Moon over the sea (azimuth 0, matching the sky disc and glitter path;
+    // elevation raised above the disc for usable shadow angles).
+    const moon = new THREE.DirectionalLight(0xbfcfe8, 6.5);
+    moon.position.set(0, 68, -145);
     moon.castShadow = true;
     moon.shadow.mapSize.set(1024, 1024);
     moon.shadow.camera.left = -16;
     moon.shadow.camera.right = 16;
     moon.shadow.camera.top = 24;
     moon.shadow.camera.bottom = -24;
-    moon.shadow.camera.near = 1;
-    moon.shadow.camera.far = 80;
+    moon.shadow.camera.near = 60;
+    moon.shadow.camera.far = 320;
+    moon.shadow.bias = -0.0004;
     this.scene.add(moon);
     this.scene.add(moon.target);
   }
 
-  private buildGround(): void {
-    const zSea = seaLineZ(this.world);
-    const beachFarZ = (this.world.height - this.world.height / 2) * SCALE_M_PER_PX + BEACH_MARGIN_M;
+  /** Build the static night environment (sky, ocean, sand, props). */
+  private buildEnvironment(): EnvLayer[] {
+    const seaZ = seaLineZ(this.world);
+    return [
+      createSky({ seed: this.configHashSeed() }),
+      createOcean({
+        seaLineZ: seaZ,
+        moonDir: new THREE.Vector3(0, 0.38, -0.925).normalize(),
+      }),
+      createSand({ world: this.world }),
+      createProps({
+        world: this.world,
+        predators: this.config.predators,
+        seed: this.configHashSeed() ^ 0x9e3779b9,
+      }),
+    ];
+  }
 
-    const sand = new THREE.Mesh(
-      new THREE.PlaneGeometry(this.world.width * SCALE_M_PER_PX + 8, beachFarZ - zSea),
-      this.track(new THREE.MeshStandardMaterial({ color: COLORS.sand, roughness: 1 })),
-    );
-    sand.rotation.x = -Math.PI / 2;
-    sand.position.set(0, 0, (zSea + beachFarZ) / 2);
-    sand.receiveShadow = true;
-    this.scene.add(sand);
-
-    const sea = new THREE.Mesh(
-      new THREE.PlaneGeometry(this.world.width * SCALE_M_PER_PX + 30, SEA_LENGTH_M),
-      this.track(new THREE.MeshStandardMaterial({ color: COLORS.sea, roughness: 0.35, metalness: 0.1 })),
-    );
-    sea.rotation.x = -Math.PI / 2;
-    sea.position.set(0, 0.02, zSea - SEA_LENGTH_M / 2 + 0.05);
-    sea.receiveShadow = true;
-    this.scene.add(sea);
+  /** Deterministic seed for visual-only randomness (stars, prop scatter). */
+  private configHashSeed(): number {
+    // Level id hash so screenshots stay deterministic per level.
+    let hash = 2166136261;
+    for (let i = 0; i < this.config.id.length; i++) {
+      hash ^= this.config.id.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
   }
 
   private buildRings(): void {
@@ -278,8 +297,15 @@ export class LevelRenderer {
       mesh = new THREE.Mesh(geometry, material);
       mesh.castShadow = true;
       if (p.kind === "frigatebird") {
-        // Cone tip points toward the sea (-Z).
+        // Cone tip points toward the sea (-Z); red throat pouch dot so the
+        // silhouette reads as a frigatebird even before the V3 model.
         mesh.rotation.x = -Math.PI / 2;
+        const throat = new THREE.Mesh(
+          this.geometries.birdThroat,
+          this.materials.birdThroat,
+        );
+        throat.position.set(0, 0.35, -0.16);
+        mesh.add(throat);
       }
       this.scene.add(mesh);
       this.predatorMeshes.set(p.id, mesh);
@@ -441,6 +467,8 @@ export class LevelRenderer {
       }
     }
     this.handleEvents(this.sim.drainEvents());
+    const timeSec = this.timer.getElapsed();
+    for (const layer of this.envLayers) layer.update(timeSec);
     this.syncHatchlings(dt);
     this.syncPredators();
     this.syncRings(dt);
@@ -481,9 +509,9 @@ export class LevelRenderer {
     this.hud.dispose();
     for (const geometry of Object.values(this.geometries)) geometry.dispose();
     for (const material of Object.values(this.materials)) material.dispose();
+    for (const layer of this.envLayers) layer.dispose();
     for (const entry of this.telegraphEntries.values()) entry.material.dispose();
     for (const ring of this.rings) ring.material.dispose();
-    for (const resource of this.disposables) resource.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }
