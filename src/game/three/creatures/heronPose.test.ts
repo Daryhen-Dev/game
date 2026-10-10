@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { heronPose } from "./heronPose";
+import { SCARED_FLAP_HZ, heronPose } from "./heronPose";
 
 describe("heronPose — windup", () => {
   it("neck extension increases monotonically over windup progress", () => {
@@ -57,8 +57,8 @@ describe("heronPose — stand", () => {
 });
 
 describe("heronPose — scared", () => {
-  it("flaps periodically with visible amplitude", () => {
-    const period = 1 / 9; // scared flap rate is bounded and periodic
+  it("flaps periodically at the real scared flap rate with visible amplitude", () => {
+    const period = 1 / SCARED_FLAP_HZ; // actual flap rate (6 Hz)
     let maxFlap = 0;
     for (let i = 0; i <= 40; i++) {
       const flap = heronPose("scared", 0, (i / 40) * period).wingFlap;
@@ -66,6 +66,11 @@ describe("heronPose — scared", () => {
       maxFlap = Math.max(maxFlap, Math.abs(flap));
     }
     expect(maxFlap).toBeGreaterThan(0.3);
+    // Truly periodic at the flap period.
+    const a = heronPose("scared", 0, 1.234);
+    const b = heronPose("scared", 0, 1.234 + period);
+    expect(a.wingFlap).toBeCloseTo(b.wingFlap, 9);
+    expect(a.neckSway).toBeCloseTo(b.neckSway, 9);
   });
 
   it("does not crouch while flying away", () => {

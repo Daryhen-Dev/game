@@ -1,5 +1,5 @@
 /**
- * Pooled cartoon burst FX (no per-frame allocation): a small group of toon
+ * Pooled cartoon burst FX (no THREE objects allocated per frame): a small group of toon
  * spheres that pops outward with easeOutBack and fades. One pool serves
  * scare puffs (white/yellow), catch dust (tan) and safe splashes (white,
  * water-biased upward).
@@ -95,7 +95,7 @@ export class BurstPool {
     }
   }
 
-  /** Spawn a burst; returns false when the pool is exhausted (oldest reused). */
+  /** Spawn a burst at the next pool slot (the oldest burst is reused when exhausted). */
   spawn(options: BurstOptions): void {
     const burst = this.bursts[this.nextBurst];
     this.nextBurst = (this.nextBurst + 1) % this.bursts.length;

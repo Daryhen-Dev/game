@@ -8,8 +8,10 @@
  * - ghost-crab burrow holes (dark disc + sand rim) at each burrow,
  * - scattered shells and driftwood.
  *
- * Draw calls: 10 total. Props sit at their `duneHeight` ground level; the
- * play lane stays untouched (height 0, flat).
+ * Draw calls: 17 total (3 rock variants + their outlines, heron rock +
+ * outline, mangroves + outline, nest mound + outline, eggshell fragments,
+ * burrows, shells, driftwood log + outline). Props sit at their `duneHeight`
+ * ground level; the play lane stays untouched (height 0, flat).
  */
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
@@ -49,6 +51,7 @@ function jitterRockGeometry(
   amount: number,
 ): THREE.BufferGeometry {
   const geometry = base.clone();
+  base.dispose(); // only the jittered clone is used
   const position = geometry.attributes.position as THREE.BufferAttribute;
   for (let i = 0; i < position.count; i++) {
     position.setXYZ(
@@ -65,8 +68,8 @@ function jitterRockGeometry(
 /** Merge parts, failing loudly (with part indices) if shapes are incompatible. */
 function mergeParts(parts: THREE.BufferGeometry[], label: string): THREE.BufferGeometry {
   const merged = mergeGeometries(parts, false);
+  for (const part of parts) part.dispose();
   if (!merged) {
-    for (const part of parts) part.dispose();
     throw new Error(
       `props: could not merge ${label} geometries (${parts.length} parts); ` +
         "attribute sets or indexedness differ",

@@ -48,7 +48,7 @@ export function mirrorGeometryX(source: THREE.BufferGeometry): THREE.BufferGeome
     for (const key of Object.keys(geometry.attributes)) {
       const attribute = geometry.attributes[key] as THREE.BufferAttribute;
       const itemSize = attribute.itemSize;
-      const array = attribute.array as number[];
+      const array = attribute.array;
       for (let t = 0; t < attribute.count; t += 3) {
         for (let c = 0; c < itemSize; c++) {
           const i1 = (t + 1) * itemSize + c;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { crabPose, crabStepFrequency } from "./crabPose";
+import { LEG_MAX_SWING, crabPose, crabStepFrequency } from "./crabPose";
 
 describe("crabStepFrequency", () => {
   it("increases with speed", () => {
@@ -54,8 +54,8 @@ describe("crabPose", () => {
   it("keeps leg swing and sway bounded", () => {
     for (let i = 0; i < 100; i++) {
       const pose = crabPose(i * 0.05, 40, true);
-      expect(Math.abs(pose.legsL)).toBeLessThanOrEqual(Math.PI / 4 + 1e-9);
-      expect(Math.abs(pose.sway)).toBeLessThanOrEqual(0.3);
+      expect(Math.abs(pose.legsL)).toBeLessThanOrEqual(LEG_MAX_SWING + 1e-9);
+      expect(Math.abs(pose.sway)).toBeLessThanOrEqual(0.06 + 1e-9);
     }
   });
 

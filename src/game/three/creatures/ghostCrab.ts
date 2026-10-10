@@ -131,7 +131,7 @@ export function createGhostCrab(options: PredatorViewOptions): PredatorView {
   claw.position.set(0.14, 0.14, -0.03);
   group.scale.setScalar(1.5);
 
-  // Scratch state (no per-frame allocation).
+  // Scratch state (no THREE objects allocated per frame).
   const ground = { x: 0, z: 0 };
   let prevPx = NaN;
   let prevPz = NaN;

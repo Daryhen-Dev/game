@@ -4,8 +4,9 @@
  * The model is merged into ONE vertex-colored body geometry (domed shell with
  * lighter scutes, cream plastron edge, oversized head with big white eyes +
  * black pupils, tail, back flippers) plus ONE front-flipper geometry (pivot
- * at the shoulder). Both render through InstancedMesh pools (body, flipper
- * and their inverted-hull outlines) so 40 hatchlings cost ~4 draw calls.
+ * at the shoulder; the right side uses a pre-mirrored clone). They render
+ * through 6 InstancedMesh pools (body, both flipper sides and their
+ * outlines), so any number of hatchlings costs 6 draw calls.
  *
  * Model space: forward = -Z (toward the sea), ground at y = 0, total length
  * ~0.55 m (cartoon-exaggerated vs the 9 px catch radius at 0.05 m/px).
@@ -144,7 +145,8 @@ export class HatchlingPool {
   private readonly flipperROutline: THREE.InstancedMesh;
   private readonly slots: PoolSlots = { idToSlot: new Map(), freeSlots: [] };
 
-  // Scratch objects (no per-frame allocation).
+  // Scratch objects (no THREE objects allocated per frame; plain number
+  // fields only).
   private readonly quatYaw = new THREE.Quaternion();
   private readonly quatPart = new THREE.Quaternion();
   private readonly quatBody = new THREE.Quaternion();

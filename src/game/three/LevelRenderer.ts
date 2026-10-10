@@ -32,6 +32,7 @@ import { createSand } from "./env/sand";
 import { createSky, HORIZON_COLOR } from "./env/sky";
 import { createGhostCrab, createFrigatebird, createLavaHeron, type PredatorView } from "./creatures/creatures";
 import { HatchlingPool, HATCHLING_GROUND_Y } from "./creatures/hatchling";
+import { HatchlingVisualTracker } from "./creatures/hatchlingVisualTracker";
 import { hatchlingPose } from "./creatures/hatchlingPose";
 import { headingFromVelocity } from "./creatures/heading";
 import { AlertPool } from "./fx/alert";
@@ -47,9 +48,6 @@ import { SCALE_M_PER_PX, seaLineZ, simToWorldInto, worldToSim } from "./worldMap
 const FIXED_STEP_SEC = 1 / 60;
 /** Cap accumulated time so tab switches don't cause a catch-up spiral. */
 const MAX_FRAME_SEC = 0.25;
-/** Safe hatchlings sink into the water at this speed. */
-const SINK_SPEED_M = 0.4;
-const SINK_HIDDEN_Y_M = -0.45;
 /** Scare ring animation lifetime (seconds). */
 const RING_LIFE_SEC = 0.28;
 const RING_POOL_SIZE = 4;
@@ -96,7 +94,6 @@ interface HatchlingTrack {
   prevX: number;
   prevZ: number;
   heading: number;
-  sinkY: number;
 }
 
 export class LevelRenderer {
@@ -120,6 +117,8 @@ export class LevelRenderer {
   // Creature pools.
   private readonly hatchlingPool: HatchlingPool;
   private readonly hatchlingTracks = new Map<number, HatchlingTrack>();
+  /** Splash-once / never-re-acquire lifecycle for safe hatchlings. */
+  private readonly visualTracker = new HatchlingVisualTracker();
   private readonly predatorViews = new Map<string, PredatorView>();
 
   // FX pools.
@@ -325,15 +324,21 @@ export class LevelRenderer {
       if (h.state === "caught") {
         this.hatchlingPool.release(h.id);
         this.hatchlingTracks.delete(h.id);
+        this.visualTracker.markCaught(h.id);
         continue;
       }
+      // Terminal ids (fully sunk or caught) are never re-acquired: the sim
+      // keeps safe hatchlings in its list forever, and re-acquiring them
+      // used to re-fire the splash/ring every ~1.2 s.
+      if (this.visualTracker.phase(h.id) === "gone") continue;
+
       if (!this.hatchlingPool.has(h.id)) {
         this.hatchlingPool.acquire(h.id);
+        this.visualTracker.acquire(h.id);
         this.hatchlingTracks.set(h.id, {
           prevX: h.x,
           prevZ: h.y,
           heading: 0,
-          sinkY: HATCHLING_GROUND_Y,
         });
       }
       const track = this.hatchlingTracks.get(h.id)!;
@@ -348,8 +353,9 @@ export class LevelRenderer {
 
       let y = HATCHLING_GROUND_Y;
       if (h.state === "safe") {
-        // Splash once, then sink into the water.
-        if (track.sinkY <= HATCHLING_GROUND_Y + 0.001) {
+        // Splash exactly once (crawling -> sinking), then sink into the water.
+        const step = this.visualTracker.markSafe(h.id, dt);
+        if (step.splash) {
           this.bursts.spawn({
             x: ground.x,
             y: 0.12,
@@ -362,13 +368,12 @@ export class LevelRenderer {
           });
           this.spawnRing(ground.x, ground.z, RING_COLOR.safe, 0.4);
         }
-        track.sinkY = Math.max(SINK_HIDDEN_Y_M, track.sinkY - SINK_SPEED_M * dt);
-        y = track.sinkY;
-        if (y <= SINK_HIDDEN_Y_M) {
+        if (step.gone) {
           this.hatchlingPool.release(h.id);
           this.hatchlingTracks.delete(h.id);
           continue;
         }
+        y = step.sinkY;
       }
 
       const pose =

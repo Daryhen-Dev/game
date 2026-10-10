@@ -23,7 +23,8 @@ export interface HeronPose {
   wingFlap: number;
 }
 
-const SCARED_FLAP_HZ = 6;
+/** Wing-flap rate (Hz) of a scared heron flying home. */
+export const SCARED_FLAP_HZ = 6;
 const STAND_EXTENSION = 0.3;
 
 /** Compute the lava heron pose for one render frame. */
