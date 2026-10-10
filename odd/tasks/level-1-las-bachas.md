@@ -118,4 +118,8 @@ population, too many starves the predators.
 
 ## Next step
 
-Playtest (`npm run dev`) to decide energy tuning; PR for `feat/level-1-input-hud`; then T5.
+T4 merged (PR #4). Playtest feedback ("looks like Atari") spawned the 3D cartoon overhaul,
+tracked in `odd/tasks/level-1-3d-visuals.md` and delivered as PRs #5–#8 (`main` `fc6a900`):
+Three.js replaces Phaser. Remaining here: T5 (menu, intro, results screens, now as HTML over
+the Three.js canvas) on branch `feat/level-1-screens`, then T6. Energy tuning is still pending
+a playtest on the new renderer.
