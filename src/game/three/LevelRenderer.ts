@@ -42,6 +42,7 @@ import { ToonMaterialFactory } from "./toon/toonMaterials";
 import { createOutlinePalette } from "./toon/outline";
 import { HudOverlay } from "./hudOverlay";
 import { rayToGround } from "./picking";
+import type { SimOutcome } from "../screens/results";
 import { SCALE_M_PER_PX, seaLineZ, simToWorldInto, worldToSim } from "./worldMap";
 
 /** Fixed simulation step (60 Hz) decoupled from the render frame rate. */
@@ -75,12 +76,22 @@ const FX = {
   splash: 0xeaf6ff,
 } as const;
 
+export interface LevelEndedResult {
+  outcome: SimOutcome;
+  rate: number;
+  score: number;
+}
+
 export interface LevelRendererOptions {
   config: LevelConfig;
   seed: number;
   rng: Rng;
   /** Simulated seconds to fast-forward before the first render (?t= debug). */
   fastForwardSec?: number;
+  /** Attract mode: render the scene but ignore all scare input. */
+  inputEnabled?: boolean;
+  /** Called once when the simulation finishes (win or lose). */
+  onLevelEnded?: (result: LevelEndedResult) => void;
 }
 
 interface RingEntry {
@@ -97,7 +108,11 @@ interface HatchlingTrack {
 }
 
 export class LevelRenderer {
+  /** Live WebGL contexts across all renderer instances (leak probe metric). */
+  static liveContexts = 0;
+
   private readonly container: HTMLElement;
+  private disposed = false;
   private readonly config: LevelConfig;
   private readonly world: WorldConfig;
   private readonly sim: Simulation;
@@ -105,6 +120,8 @@ export class LevelRenderer {
   private readonly scene: THREE.Scene;
   private readonly camera: THREE.PerspectiveCamera;
   private readonly hud: HudOverlay;
+  private readonly inputEnabled: boolean;
+  private readonly onLevelEnded?: (result: LevelEndedResult) => void;
   private readonly envLayers: EnvLayer[];
   private readonly resizeObserver: ResizeObserver;
   private readonly timer = new THREE.Timer();
@@ -148,6 +165,8 @@ export class LevelRenderer {
     this.config = options.config;
     this.world = options.config.world;
     this.sim = new Simulation(options.config, options.rng);
+    this.inputEnabled = options.inputEnabled ?? true;
+    this.onLevelEnded = options.onLevelEnded;
 
     // Debug viewport pin (?w=<px>&h=<px>): headless Chrome clamps the window
     // to 500px wide, so phone-sized screenshots crop a 500px layout. Pinning
@@ -160,6 +179,7 @@ export class LevelRenderer {
     this.perfEnabled = debugParams.get("perf") === "1";
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    LevelRenderer.liveContexts++;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
     // r186: PCFShadowMap performs the soft filtering (PCFSoftShadowMap is deprecated).
@@ -479,7 +499,7 @@ export class LevelRenderer {
     for (const event of events) {
       switch (event.type) {
         case "level-ended":
-          this.hud.showOutcome(event.outcome, event.rate, event.score);
+          this.onLevelEnded?.({ outcome: event.outcome, rate: event.rate, score: event.score });
           break;
         case "predator-scared": {
           const predator = this.sim.predators.find((p) => p.id === event.predatorId);
@@ -524,7 +544,7 @@ export class LevelRenderer {
   // --- input ---
 
   private handlePointerDown(event: PointerEvent): void {
-    if (this.sim.finished) return;
+    if (!this.inputEnabled || this.sim.finished) return;
     const rect = this.renderer.domElement.getBoundingClientRect();
     this.pointerNdc.set(
       ((event.clientX - rect.left) / rect.width) * 2 - 1,
@@ -547,6 +567,7 @@ export class LevelRenderer {
   // --- loop / resize ---
 
   private readonly frame = (): void => {
+    if (this.disposed) return;
     if (!this.perfEnabled) {
       this.tick();
       return;
@@ -569,6 +590,7 @@ export class LevelRenderer {
   };
 
   private tick(): void {
+    if (this.disposed) return;
     this.timer.update();
     const dt = Math.min(this.timer.getDelta(), MAX_FRAME_SEC);
     if (!this.sim.finished) {
@@ -579,6 +601,9 @@ export class LevelRenderer {
       }
     }
     this.handleEvents(this.sim.drainEvents());
+    // handleEvents can reach the shell, which may dispose this renderer
+    // (attract-mode respawn); stop before touching disposed GPU resources.
+    if (this.disposed) return;
     const simTime = this.sim.elapsed;
     const timeSec = this.timer.getElapsed();
     for (const layer of this.envLayers) layer.update(timeSec);
@@ -615,7 +640,32 @@ export class LevelRenderer {
     this.camera.updateProjectionMatrix();
   }
 
+  /** Show/hide the HUD strip (the shell hides it behind menu/intro screens). */
+  setHudVisible(visible: boolean): void {
+    this.hud.setVisible(visible);
+  }
+
+  /** GPU resource counters for leak checks (?perf=1 debug and the shell). */
+  resourceCounts(): {
+    geometries: number;
+    textures: number;
+    programs: number;
+    drawCalls: number;
+    liveContexts: number;
+  } {
+    const memory = this.renderer.info.memory;
+    return {
+      geometries: memory.geometries,
+      textures: memory.textures,
+      programs: this.renderer.info.programs?.length ?? 0,
+      drawCalls: this.renderer.info.render.calls,
+      liveContexts: LevelRenderer.liveContexts,
+    };
+  }
+
   dispose(): void {
+    if (this.disposed) return; // idempotent
+    this.disposed = true;
     this.renderer.setAnimationLoop(null);
     this.timer.disconnect();
     this.timer.dispose();
@@ -637,6 +687,10 @@ export class LevelRenderer {
     this.outlinePalette.dispose();
     this.toon.dispose();
     this.renderer.dispose();
+    // Release the WebGL context NOW: browsers cap live contexts (~16), so a
+    // restart flow that only removes the canvas would eventually fail.
+    this.renderer.forceContextLoss();
     this.renderer.domElement.remove();
+    LevelRenderer.liveContexts = Math.max(0, LevelRenderer.liveContexts - 1);
   }
 }
